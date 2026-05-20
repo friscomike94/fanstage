@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   TextInput,
 } from "react-native";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ——— Design tokens ———
 const C = {
@@ -26,6 +27,16 @@ const C = {
 
 const SPACE = { xs: 8, sm: 12, md: 20, lg: 28, xl: 36 };
 const BACKING_PRICE = "₩5,000";
+
+const SCREEN_OVERLAY = {
+  position: "absolute" as const,
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  zIndex: 100,
+  backgroundColor: C.bg,
+};
 
 const ROLE = {
   fan: { primary: "#22c55e", soft: "#86efac", bg: "#14532d", border: "#22c55e66", label: "Fan" },
@@ -383,10 +394,17 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 function ScreenHeader({ title, subtitle, onBack, eyebrow }: { title: string; subtitle?: string; onBack?: () => void; eyebrow?: string }) {
+  const insets = useSafeAreaInsets();
+  const topOffset = onBack ? insets.top + SPACE.sm : SPACE.sm;
+
   return (
-    <View style={{ marginTop: SPACE.sm, marginBottom: SPACE.lg }}>
+    <View style={{ marginTop: topOffset, marginBottom: SPACE.lg }}>
       {onBack ? (
-        <TouchableOpacity onPress={onBack} style={{ marginBottom: SPACE.md }}>
+        <TouchableOpacity
+          onPress={onBack}
+          hitSlop={{ top: 10, right: 16, bottom: 10, left: 16 }}
+          style={{ alignSelf: "flex-start", justifyContent: "center", minHeight: 44, marginBottom: SPACE.md }}
+        >
           <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 16 }}>← Back</Text>
         </TouchableOpacity>
       ) : null}
@@ -907,6 +925,81 @@ function posterAccent(genre: SlotGenre) {
   return { stripe: ROLE.fan.primary, wash: "#14532d33" };
 }
 
+function artistInitials(name: string) {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
+function CompactLineupArtistRow({
+  artist,
+  isUserPick,
+  lockedOut,
+  onPress,
+  onBack,
+}: {
+  artist: CompetingArtist;
+  isUserPick: boolean;
+  lockedOut: boolean;
+  onPress: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 10,
+        borderTopWidth: 1,
+        borderTopColor: "#ffffff0d",
+      }}
+    >
+      <View
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          backgroundColor: C.border,
+          alignItems: "center",
+          justifyContent: "center",
+          marginRight: SPACE.sm,
+          overflow: "hidden",
+        }}
+      >
+        <Text style={{ color: C.muted, fontWeight: "900", fontSize: 11 }}>{artistInitials(artist.name)}</Text>
+      </View>
+      <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={{ flex: 1, paddingRight: SPACE.sm }}>
+        <Text style={{ color: C.text, fontWeight: "800", fontSize: 14 }} numberOfLines={1}>
+          {artist.name}
+        </Text>
+        <Text style={{ color: C.muted, fontSize: 12, fontWeight: "600", marginTop: 2 }}>
+          {artist.supporters} supporters
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={onBack}
+        disabled={lockedOut}
+        style={{
+          paddingHorizontal: 12,
+          paddingVertical: 7,
+          borderRadius: 10,
+          backgroundColor: lockedOut ? C.border : isUserPick ? C.surface : C.accent,
+          borderWidth: lockedOut ? 0 : isUserPick ? 1 : 0,
+          borderColor: C.accent,
+        }}
+      >
+        <Text style={{ color: lockedOut ? C.dim : isUserPick ? C.accentSoft : C.ink, fontWeight: "900", fontSize: 12 }}>
+          Back
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function VenueCard({
   venue,
   userPickId,
@@ -920,9 +1013,9 @@ function VenueCard({
   onOpenArtist: (artist: CompetingArtist) => void;
   onBackArtist: (artist: CompetingArtist) => void;
 }) {
+  const [lineupExpanded, setLineupExpanded] = useState(false);
   const momentum = getVenueMomentum(venue);
   const sorted = sortedArtists(venue);
-  const leader = sorted[0];
   const total = totalSupporters(venue);
   const progress = Math.min(total / venue.unlockGoal, 1);
   const accent = posterAccent(venue.slotGenre);
@@ -980,35 +1073,47 @@ function VenueCard({
           </View>
         </TouchableOpacity>
 
-        <Text style={{ color: C.dim, fontWeight: "800", fontSize: 11, letterSpacing: 1, marginBottom: SPACE.sm }}>LINEUP BATTLE</Text>
-      {sorted.slice(0, 3).map((artist, i) => {
-        const rank = i + 1;
-        const isWinner = venue.winnerId === artist.id;
-        const isLeading = !venue.winnerId && rank === 1;
-        const isUserPick = userPickId === artist.id;
-        const lockedOut = !!userPickId && userPickId !== artist.id && !venue.winnerId;
-
-        return (
-          <LeaderboardRow
-            key={artist.id}
-            artist={artist}
-            rank={rank}
-            maxSupporters={leader.supporters}
-            isWinner={isWinner}
-            isLeading={isLeading}
-            isUserPick={isUserPick}
-            lockedOut={lockedOut}
-            onPress={() => onOpenArtist(artist)}
-            onBack={() => onBackArtist(artist)}
-          />
-        );
-      })}
-
-      {sorted.length > 3 ? (
-        <TouchableOpacity onPress={onOpenVenue} style={{ paddingVertical: SPACE.sm, alignItems: "center" }}>
-          <Text style={{ color: accent.stripe, fontWeight: "800" }}>Full poster & battle →</Text>
+        <TouchableOpacity
+          onPress={() => setLineupExpanded((e) => !e)}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            backgroundColor: C.surface,
+            borderRadius: 14,
+            paddingHorizontal: SPACE.md,
+            paddingVertical: 14,
+            borderWidth: 1,
+            borderColor: "#ffffff0d",
+          }}
+        >
+          <Text style={{ color: C.text, fontWeight: "900", fontSize: 15 }}>
+            Lineup · {sorted.length} artists
+          </Text>
+          <Text style={{ color: C.accentSoft, fontWeight: "800" }}>{lineupExpanded ? "▲" : "▼"}</Text>
         </TouchableOpacity>
-      ) : null}
+
+        {lineupExpanded ? (
+          <View style={{ marginTop: SPACE.sm }}>
+            {sorted.map((artist) => {
+              const isUserPick = userPickId === artist.id;
+              const lockedOut = !!userPickId && userPickId !== artist.id && !venue.winnerId;
+              return (
+                <CompactLineupArtistRow
+                  key={artist.id}
+                  artist={artist}
+                  isUserPick={isUserPick}
+                  lockedOut={lockedOut}
+                  onPress={() => onOpenArtist(artist)}
+                  onBack={() => onBackArtist(artist)}
+                />
+              );
+            })}
+            <TouchableOpacity onPress={onOpenVenue} style={{ paddingVertical: SPACE.sm, alignItems: "center" }}>
+              <Text style={{ color: accent.stripe, fontWeight: "800" }}>Full poster & battle →</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -1923,7 +2028,7 @@ const DEMO_TICKET: Ticket = {
   code: "FS-KONTRA-VELVET-2026",
 };
 
-export default function App() {
+function AppContent() {
   const [activeTab, setActiveTab] = useState<Tab>("discover");
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [selectedVenue, setSelectedVenue] = useState<VenueCompetition | null>(null);
@@ -2065,7 +2170,7 @@ export default function App() {
     setSelectedTicket(null);
   };
 
-  const renderContent = () => {
+  const renderOverlayContent = () => {
     if (overlay === "ticketQr" && selectedTicket) {
       return (
         <TicketQrScreen
@@ -2191,6 +2296,10 @@ export default function App() {
       );
     }
 
+    return null;
+  };
+
+  const renderTabContent = () => {
     switch (activeTab) {
       case "tickets":
         return (
@@ -2266,12 +2375,32 @@ export default function App() {
     overlay === "admin" ||
     overlay === "ticketQr";
 
+  const overlayContent = renderOverlayContent();
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
       <ScrollView contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
-        {renderContent()}
+        {renderTabContent()}
       </ScrollView>
+      {overlayContent ? (
+        <View style={SCREEN_OVERLAY}>
+          <ScrollView
+            contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 120 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {overlayContent}
+          </ScrollView>
+        </View>
+      ) : null}
       <BottomNav activeTab={activeTab} onTabChange={handleTabChange} visible={!hideNav} />
     </SafeAreaView>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
   );
 }
