@@ -1,13 +1,17 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   SafeAreaView,
   ScrollView,
+  StyleSheet,
   View,
   Text,
   TouchableOpacity,
   TextInput,
 } from "react-native";
-import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useVideoPlayer, VideoView } from "expo-video";
+
+const HERO_BG_VIDEO = require("./assets/hero-bg.mp4");
 
 // ——— Design tokens ———
 const C = {
@@ -36,6 +40,7 @@ const SCREEN_OVERLAY = {
   bottom: 0,
   zIndex: 100,
   backgroundColor: C.bg,
+  flex: 1,
 };
 
 const ROLE = {
@@ -118,8 +123,9 @@ type VenueCompetition = {
 
 const DISTRICT_CHIPS: DistrictFilter[] = ["Hongdae", "Mapo", "Itaewon", "Seongsu"];
 const GENRE_CHIPS: GenreFilter[] = ["All", "Indie", "Electronic", "Hip-hop", "Jazz"];
+const SLOT_GENRES: SlotGenre[] = ["Indie", "Electronic", "Hip-hop", "Jazz"];
 
-const VENUE_COMPETITIONS: VenueCompetition[] = [
+const INITIAL_VENUES: VenueCompetition[] = [
   {
     id: "rolling",
     venueName: "Rolling Hall",
@@ -237,7 +243,7 @@ const VENUE_COMPETITIONS: VenueCompetition[] = [
     capacity: 180,
     slotLabel: "Wednesday emerging night · 7:30PM",
     slotDate: "Wed, Jun 18",
-    countdown: { days: 4, hours: 6, minutes: 5 },
+    countdown: { days: 0, hours: 0, minutes: 8 },
     unlockGoal: 80,
     slotGenre: "Jazz",
     slotsOpen: 3,
@@ -287,7 +293,7 @@ type Ticket = {
   code: string;
 };
 
-type FanInvite = { id: string; venueId: string; artistName: string; note: string };
+type FanInvite = { id: string; venueId: string; profileId: string; genre: SlotGenre; note: string };
 type ArtistApplication = { id: string; venueId: string; artistName: string; pitch: string };
 
 const PROFILE_BADGES = [
@@ -336,13 +342,132 @@ function formatCountdown(c: VenueCompetition["countdown"]) {
   return `${c.hours}h ${c.minutes}m`;
 }
 
-function resolveArtist(opts: {
-  venueId?: string;
-  artistId?: string;
-  artistName?: string;
-  venueName?: string;
-}): { venue: VenueCompetition; artist: CompetingArtist } | null {
-  for (const venue of VENUE_COMPETITIONS) {
+function countdownEnded(c: VenueCompetition["countdown"]) {
+  return c.days === 0 && c.hours === 0 && c.minutes === 0;
+}
+
+function tickVenueCountdowns(venues: VenueCompetition[]): VenueCompetition[] {
+  return venues.map((venue) => {
+    if (venue.winnerId || countdownEnded(venue.countdown)) return venue;
+    let { days, hours, minutes } = venue.countdown;
+    minutes -= 1;
+    if (minutes < 0) {
+      minutes = 59;
+      hours -= 1;
+    }
+    if (hours < 0) {
+      hours = 23;
+      days -= 1;
+    }
+    return {
+      ...venue,
+      countdown: {
+        days: Math.max(0, days),
+        hours: Math.max(0, hours),
+        minutes: Math.max(0, minutes),
+      },
+    };
+  });
+}
+
+function createWinnerTicket(venue: VenueCompetition, artist: CompetingArtist): Ticket {
+  const timeLabel = venue.slotLabel.includes("·") ? venue.slotLabel.split("·").pop()?.trim() : venue.slotLabel;
+  return {
+    id: `ticket-${venue.id}-${artist.id}`,
+    artist: artist.name,
+    artistId: artist.id,
+    venue: venue.venueName,
+    venueId: venue.id,
+    date: `${venue.slotDate} · ${timeLabel ?? "8PM"}`,
+    seat: "GA · Fanstage winner pick",
+    code: `FS-${artist.id.toUpperCase()}-${venue.id.toUpperCase()}-2026`,
+  };
+}
+
+function resolveEndedBattles(
+  venues: VenueCompetition[],
+  venueBackings: Record<string, string>,
+  tickets: Ticket[]
+): { venues: VenueCompetition[]; tickets: Ticket[]; toast?: string } {
+  let nextTickets = [...tickets];
+  let toast: string | undefined;
+
+  const nextVenues = venues.map((venue) => {
+    if (venue.winnerId || !countdownEnded(venue.countdown)) return venue;
+
+    const leader = getLeader(venue);
+    const userPickId = venueBackings[venue.id];
+    const resolved = { ...venue, winnerId: leader.id, slotsOpen: 0 };
+
+    if (userPickId === leader.id) {
+      const artist = venue.artists.find((a) => a.id === leader.id)!;
+      if (!nextTickets.some((t) => t.venueId === venue.id)) {
+        nextTickets = [...nextTickets, createWinnerTicket(venue, artist)];
+        toast = `${artist.name} won ${venue.venueName}! Your ticket is ready.`;
+      }
+    } else if (userPickId) {
+      const artist = venue.artists.find((a) => a.id === userPickId);
+      toast = `Battle ended at ${venue.venueName}.${artist ? ` ${artist.name} didn't win` : ""} — ${BACKING_PRICE} refunded.`;
+    }
+
+    return resolved;
+  });
+
+  return { venues: nextVenues, tickets: nextTickets, toast };
+}
+
+function buildActivePicks(venues: VenueCompetition[], venueBackings: Record<string, string>): PendingPick[] {
+  return Object.entries(venueBackings)
+    .map(([venueId, artistId]) => {
+      const venue = venues.find((v) => v.id === venueId);
+      if (!venue || venue.winnerId) return null;
+      const artist = venue.artists.find((a) => a.id === artistId);
+      if (!artist) return null;
+      const sorted = sortedArtists(venue);
+      const rank = sorted.findIndex((a) => a.id === artistId) + 1;
+      return {
+        id: `${venueId}-${artistId}`,
+        venueId,
+        artistId,
+        artist: artist.name,
+        venue: venue.venueName,
+        countdown: formatCountdown(venue.countdown),
+        rank: `#${rank} of ${sorted.length}`,
+      };
+    })
+    .filter((p): p is PendingPick => p !== null);
+}
+
+function bumpArtistSupport(venues: VenueCompetition[], venueId: string, artistId: string): VenueCompetition[] {
+  return venues.map((venue) => {
+    if (venue.id !== venueId) return venue;
+    return {
+      ...venue,
+      artists: venue.artists.map((a) => (a.id === artistId ? { ...a, supporters: a.supporters + 1 } : a)),
+    };
+  });
+}
+
+function findLiveVenue(venues: VenueCompetition[], venue: VenueCompetition | null) {
+  if (!venue) return null;
+  return venues.find((v) => v.id === venue.id) ?? venue;
+}
+
+function findLiveArtist(venue: VenueCompetition | null, artist: CompetingArtist | null) {
+  if (!venue || !artist) return null;
+  return venue.artists.find((a) => a.id === artist.id) ?? artist;
+}
+
+function resolveArtist(
+  venues: VenueCompetition[],
+  opts: {
+    venueId?: string;
+    artistId?: string;
+    artistName?: string;
+    venueName?: string;
+  }
+): { venue: VenueCompetition; artist: CompetingArtist } | null {
+  for (const venue of venues) {
     if (opts.venueId && venue.id !== opts.venueId) continue;
     if (opts.venueName && venue.venueName !== opts.venueName) continue;
     const artist = venue.artists.find(
@@ -394,11 +519,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 function ScreenHeader({ title, subtitle, onBack, eyebrow }: { title: string; subtitle?: string; onBack?: () => void; eyebrow?: string }) {
-  const insets = useSafeAreaInsets();
-  const topOffset = onBack ? insets.top + SPACE.sm : SPACE.sm;
-
   return (
-    <View style={{ marginTop: topOffset, marginBottom: SPACE.lg }}>
+    <View style={{ marginTop: SPACE.sm, marginBottom: SPACE.lg }}>
       {onBack ? (
         <TouchableOpacity
           onPress={onBack}
@@ -602,15 +724,25 @@ function LiveBadgeStatic() {
 }
 
 function LandingHero() {
+  const player = useVideoPlayer(HERO_BG_VIDEO, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
+
   return (
     <View style={{ borderRadius: 24, overflow: "hidden", marginBottom: SPACE.xl }}>
-      <View style={{ backgroundColor: "#070d18", paddingHorizontal: SPACE.lg, paddingTop: 40, paddingBottom: 40, minHeight: 268 }}>
-        <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 140, backgroundColor: "#0f172a" }} />
-        <View style={{ position: "absolute", top: 60, left: 0, right: 0, height: 120, backgroundColor: "#a855f708" }} />
-        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 100, backgroundColor: "#22c55e06" }} />
-        <View style={{ position: "absolute", top: 20, right: 20, opacity: 0.09 }}>
-          <Text style={{ color: C.text, fontSize: 88, fontWeight: "200" }}>♫</Text>
-        </View>
+      <View style={{ backgroundColor: "#070d18", minHeight: 268 }}>
+        <VideoView
+          player={player}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          nativeControls={false}
+          pointerEvents="none"
+        />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(7, 13, 24, 0.58)" }]} />
+        <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 120, backgroundColor: "rgba(15, 23, 42, 0.35)" }} />
+        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 80, backgroundColor: "rgba(34, 197, 94, 0.06)" }} />
         <View
           style={{
             position: "absolute",
@@ -622,16 +754,18 @@ function LandingHero() {
             opacity: 0.25,
           }}
         />
-        <Text style={{ color: C.dim, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>FANSTAGE · SEOUL</Text>
-        <Text style={{ color: C.text, fontSize: 44, fontWeight: "900", lineHeight: 48, marginTop: 16, letterSpacing: -1.2 }}>
-          The room{"\n"}decides.
-        </Text>
-        <Text style={{ color: C.muted, fontSize: 15, lineHeight: 22, marginTop: 18, maxWidth: 320, fontWeight: "500" }}>
-          Genre-locked venue battles. One pick. Highest support wins the slot.
-        </Text>
-        <View style={{ flexDirection: "row", marginTop: 28, alignItems: "center" }}>
-          <LiveBadgeStatic />
-          <Text style={{ color: C.dim, marginLeft: 14, fontWeight: "600", fontSize: 12, letterSpacing: 0.3 }}>♪ Live culture · Seoul</Text>
+        <View style={{ paddingHorizontal: SPACE.lg, paddingTop: 40, paddingBottom: 40 }}>
+          <Text style={{ color: C.dim, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>FANSTAGE · SEOUL</Text>
+          <Text style={{ color: C.text, fontSize: 44, fontWeight: "900", lineHeight: 48, marginTop: 16, letterSpacing: -1.2 }}>
+            The room{"\n"}decides.
+          </Text>
+          <Text style={{ color: C.muted, fontSize: 15, lineHeight: 22, marginTop: 18, maxWidth: 320, fontWeight: "500" }}>
+            Genre-locked venue battles. One pick. Highest support wins the slot.
+          </Text>
+          <View style={{ flexDirection: "row", marginTop: 28, alignItems: "center" }}>
+            <LiveBadgeStatic />
+            <Text style={{ color: C.dim, marginLeft: 14, fontWeight: "600", fontSize: 12, letterSpacing: 0.3 }}>♪ Live culture · Seoul</Text>
+          </View>
         </View>
       </View>
     </View>
@@ -1284,7 +1418,11 @@ function VenueDetailScreen({
           <SectionLabel>FAN INVITES</SectionLabel>
           {venueInvites.map((inv) => (
             <View key={inv.id} style={{ backgroundColor: C.surface, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.xs }}>
-              <Text style={{ color: C.text, fontWeight: "800" }}>{inv.artistName}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", marginBottom: SPACE.xs }}>
+                <Text style={{ color: C.text, fontWeight: "800", marginRight: SPACE.sm }}>{inv.profileId}</Text>
+                <GenrePill genre={inv.genre} />
+              </View>
+              <Text style={{ color: C.dim, fontSize: 11, fontWeight: "600" }}>Social / music profile · {inv.genre}</Text>
               <Text style={{ color: C.muted, marginTop: 4 }}>{inv.note}</Text>
             </View>
           ))}
@@ -1541,11 +1679,13 @@ function TicketsScreen({
   pending,
   onOpenArtistFromTicket,
   onOpenArtistFromPick,
+  onExploreBattles,
 }: {
   unlocked: Ticket[];
   pending: PendingPick[];
   onOpenArtistFromTicket: (t: Ticket) => void;
   onOpenArtistFromPick: (p: PendingPick) => void;
+  onExploreBattles: () => void;
 }) {
   return (
     <>
@@ -1558,6 +1698,12 @@ function TicketsScreen({
           <Text style={{ color: C.muted, textAlign: "center", marginTop: SPACE.sm, lineHeight: 22 }}>
             When your backed artist wins a venue battle, your deposit converts to a ticket here.
           </Text>
+          <TouchableOpacity
+            onPress={onExploreBattles}
+            style={{ marginTop: SPACE.lg, backgroundColor: C.accent, borderRadius: 14, paddingHorizontal: SPACE.lg, paddingVertical: 12 }}
+          >
+            <Text style={{ color: C.ink, fontWeight: "900" }}>Explore venue battles</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         unlocked.map((t) => (
@@ -1571,7 +1717,12 @@ function TicketsScreen({
       )}
       <SectionLabel>ACTIVE BATTLES</SectionLabel>
       {pending.length === 0 ? (
-        <Text style={{ color: C.dim }}>No active picks. Back an artist in a venue battle.</Text>
+        <View style={{ marginBottom: SPACE.lg }}>
+          <Text style={{ color: C.dim, lineHeight: 22 }}>No active picks. Back an artist in a venue battle.</Text>
+          <TouchableOpacity onPress={onExploreBattles} style={{ marginTop: SPACE.md, alignSelf: "flex-start" }}>
+            <Text style={{ color: C.accentSoft, fontWeight: "800" }}>Find a battle →</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
         pending.map((p) => (
           <TouchableOpacity key={p.id} onPress={() => onOpenArtistFromPick(p)} activeOpacity={0.9} style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
@@ -1605,61 +1756,135 @@ function InviteArtistFlow({
   preselectedVenue,
   onBack,
   onSubmit,
+  onViewVenue,
 }: {
   venues: VenueCompetition[];
   preselectedVenue: VenueCompetition | null;
   onBack: () => void;
   onSubmit: (invite: FanInvite) => void;
+  onViewVenue: (venueId: string) => void;
 }) {
-  const [venueId, setVenueId] = useState(preselectedVenue?.id ?? venues[0]?.id ?? "");
-  const [artistName, setArtistName] = useState("");
+  const initialGenre = preselectedVenue?.slotGenre ?? venues.find((v) => !v.winnerId)?.slotGenre ?? "Indie";
+  const [artistGenre, setArtistGenre] = useState<SlotGenre>(initialGenre);
+  const matchingVenues = venues.filter((v) => !v.winnerId && v.slotGenre === artistGenre);
+  const [venueId, setVenueId] = useState(() => {
+    if (preselectedVenue && preselectedVenue.slotGenre === initialGenre && !preselectedVenue.winnerId) {
+      return preselectedVenue.id;
+    }
+    return matchingVenues[0]?.id ?? "";
+  });
+  const [profileId, setProfileId] = useState("");
   const [note, setNote] = useState("");
   const [done, setDone] = useState(false);
-  const venue = venues.find((v) => v.id === venueId) ?? preselectedVenue;
+  const venue = matchingVenues.find((v) => v.id === venueId) ?? preselectedVenue;
+  const genreMatch = venue?.slotGenre === artistGenre;
+  const profileLabel = profileId.trim() ? (profileId.trim().startsWith("@") ? profileId.trim() : `@${profileId.trim()}`) : "";
 
-  if (done && venue) {
+  const selectGenre = (genre: SlotGenre) => {
+    setArtistGenre(genre);
+    const nextVenues = venues.filter((v) => !v.winnerId && v.slotGenre === genre);
+    setVenueId(nextVenues[0]?.id ?? "");
+  };
+
+  if (done && venue && genreMatch) {
     return (
       <>
-        <ScreenHeader title="Invite sent" subtitle={`${artistName} has been nominated for ${venue.venueName}.`} onBack={onBack} eyebrow="SCENE BUILDER" />
-        <View style={{ backgroundColor: C.card, borderRadius: 28, padding: SPACE.xl, alignItems: "center" }}>
+        <ScreenHeader title="Invite sent" subtitle={`${profileLabel} · ${artistGenre} nominated for ${venue.venueName}.`} onBack={onBack} eyebrow="SCENE BUILDER" />
+        <View style={{ backgroundColor: C.card, borderRadius: 28, padding: SPACE.xl, alignItems: "center", marginBottom: SPACE.lg }}>
           <Text style={{ fontSize: 48, marginBottom: SPACE.md }}>📣</Text>
           <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, textAlign: "center" }}>You put them on the radar</Text>
-          <Text style={{ color: C.muted, textAlign: "center", marginTop: SPACE.sm, lineHeight: 22 }}>+15 reputation · Artists can accept and enter the {venue.slotGenre} battle</Text>
+          <View style={{ marginTop: SPACE.md }}><GenrePill genre={artistGenre} large /></View>
+          <Text style={{ color: C.muted, textAlign: "center", marginTop: SPACE.sm, lineHeight: 22 }}>+15 reputation · {artistGenre} slot at {venue.venueName}</Text>
         </View>
+        <TouchableOpacity
+          onPress={() => onViewVenue(venue.id)}
+          style={{ backgroundColor: C.accent, borderRadius: 18, paddingVertical: 18, alignItems: "center", marginBottom: SPACE.sm }}
+        >
+          <Text style={{ color: C.ink, fontWeight: "900", fontSize: 17 }}>View venue battle</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onBack} style={{ paddingVertical: SPACE.md, alignItems: "center" }}>
+          <Text style={{ color: C.accentSoft, fontWeight: "800" }}>Back to feed</Text>
+        </TouchableOpacity>
       </>
     );
   }
 
   return (
     <>
-      <ScreenHeader title="Invite an artist" subtitle="Bring someone you believe in. They must match the venue's genre slot." onBack={onBack} eyebrow="FAN ONBOARDING" />
-      <SectionLabel>SELECT VENUE BATTLE</SectionLabel>
-      {venues.filter((v) => !v.winnerId).map((v) => (
-        <TouchableOpacity key={v.id} onPress={() => setVenueId(v.id)} style={{ backgroundColor: venueId === v.id ? "#2d1f4e" : C.card, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.sm, borderWidth: 1, borderColor: venueId === v.id ? C.rival : C.border }}>
-          <Text style={{ color: C.text, fontWeight: "900" }}>{v.venueName}</Text>
-          <View style={{ marginTop: SPACE.xs }}><GenrePill genre={v.slotGenre} /></View>
-        </TouchableOpacity>
-      ))}
-      {venue ? (
-        <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 22 }}>Only {venue.slotGenre} artists can join this battle.</Text>
-      ) : null}
-      <Text style={{ color: C.muted, fontWeight: "700", marginBottom: SPACE.xs }}>Artist name</Text>
-      <View style={{ backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
-        <TextInput placeholder="Who should compete?" placeholderTextColor={C.dim} value={artistName} onChangeText={setArtistName} style={{ color: C.text, fontWeight: "600" }} />
+      <ScreenHeader title="Invite an artist" subtitle="Pick their genre, then a matching venue slot." onBack={onBack} eyebrow="FAN ONBOARDING" />
+      <SectionLabel>ARTIST GENRE</SectionLabel>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: SPACE.md }}>
+        {SLOT_GENRES.map((g) => (
+          <FilterChip key={g} label={g} active={artistGenre === g} accent={C.rival} onPress={() => selectGenre(g)} />
+        ))}
       </View>
-      <Text style={{ color: C.muted, fontWeight: "700", marginBottom: SPACE.xs }}>Why they'll win the room</Text>
+      <SectionLabel>SELECT VENUE BATTLE · {artistGenre.toUpperCase()}</SectionLabel>
+      {matchingVenues.length === 0 ? (
+        <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 22 }}>No open {artistGenre} battles right now. Try another genre.</Text>
+      ) : (
+        matchingVenues.map((v) => (
+          <TouchableOpacity key={v.id} onPress={() => setVenueId(v.id)} style={{ backgroundColor: venueId === v.id ? "#2d1f4e" : C.card, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.sm, borderWidth: 1, borderColor: venueId === v.id ? C.rival : C.border }}>
+            <Text style={{ color: C.text, fontWeight: "900" }}>{v.venueName}</Text>
+            <View style={{ marginTop: SPACE.xs }}><GenrePill genre={v.slotGenre} /></View>
+          </TouchableOpacity>
+        ))
+      )}
+      {venue && genreMatch ? (
+        <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 22 }}>{artistGenre} artist · {venue.venueName} slot only.</Text>
+      ) : null}
+      {venue && !genreMatch ? (
+        <Text style={{ color: C.rival, marginBottom: SPACE.md, lineHeight: 22, fontWeight: "700" }}>Genre must match the venue slot ({venue.slotGenre}).</Text>
+      ) : null}
+      <Text style={{ color: C.muted, fontWeight: "700", marginBottom: SPACE.xs }}>Social or music profile ID</Text>
+      <View style={{ backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.xs, borderWidth: 1, borderColor: C.border }}>
+        <TextInput
+          placeholder="@artist · open.spotify.com/artist/…"
+          placeholderTextColor={C.dim}
+          value={profileId}
+          onChangeText={setProfileId}
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={{ color: C.text, fontWeight: "600" }}
+        />
+      </View>
+      <Text style={{ color: C.dim, fontSize: 12, marginBottom: SPACE.md, lineHeight: 18 }}>
+        Instagram, TikTok, Spotify, SoundCloud, or any link we can verify.
+      </Text>
+      <Text style={{ color: C.muted, fontWeight: "700", marginBottom: SPACE.xs }}>Invite friends</Text>
       <View style={{ backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.lg, borderWidth: 1, borderColor: C.border }}>
-        <TextInput placeholder="Your pitch to the scene…" placeholderTextColor={C.dim} value={note} onChangeText={setNote} multiline style={{ color: C.text, fontWeight: "600", minHeight: 80 }} />
+        <TextInput
+          placeholder="@friend1 @friend2 · who should back them?"
+          placeholderTextColor={C.dim}
+          value={note}
+          onChangeText={setNote}
+          autoCapitalize="none"
+          autoCorrect={false}
+          multiline
+          style={{ color: C.text, fontWeight: "600", minHeight: 80 }}
+        />
       </View>
       <TouchableOpacity
         onPress={() => {
-          if (!venue || !artistName.trim()) return;
-          onSubmit({ id: `inv-${Date.now()}`, venueId: venue.id, artistName: artistName.trim(), note: note.trim() || "Fan invite — ready to battle" });
+          if (!venue || !profileId.trim() || !genreMatch) return;
+          const handle = profileId.trim().startsWith("@") ? profileId.trim() : `@${profileId.trim()}`;
+          onSubmit({
+            id: `inv-${Date.now()}`,
+            venueId: venue.id,
+            profileId: handle,
+            genre: artistGenre,
+            note: note.trim() || `Invited friends to back ${handle} · ${artistGenre}`,
+          });
           setDone(true);
         }}
-        style={{ backgroundColor: C.rival, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}
+        disabled={!venue || !profileId.trim() || !genreMatch}
+        style={{
+          backgroundColor: !venue || !profileId.trim() || !genreMatch ? C.border : C.rival,
+          borderRadius: 18,
+          paddingVertical: 18,
+          alignItems: "center",
+        }}
       >
-        <Text style={{ color: C.ink, fontWeight: "900" }}>Send invite</Text>
+        <Text style={{ color: !venue || !profileId.trim() || !genreMatch ? C.dim : C.ink, fontWeight: "900" }}>Send invite</Text>
       </TouchableOpacity>
     </>
   );
@@ -1671,12 +1896,14 @@ function ApplyBattleFlow({
   onBack,
   onSubmit,
   onArtistRolePending,
+  onViewVenue,
 }: {
   venues: VenueCompetition[];
   preselectedVenue: VenueCompetition | null;
   onBack: () => void;
   onSubmit: (app: ArtistApplication) => void;
   onArtistRolePending: (stageName: string) => void;
+  onViewVenue: (venueId: string) => void;
 }) {
   const openVenues = venues.filter((v) => !v.winnerId && v.slotsOpen > 0);
   const [venueId, setVenueId] = useState(preselectedVenue?.id ?? openVenues[0]?.id ?? "");
@@ -1689,13 +1916,22 @@ function ApplyBattleFlow({
     return (
       <>
         <ScreenHeader title="Application in" subtitle={`${artistName} is queued for ${venue.venueName}.`} onBack={onBack} eyebrow="ARTIST ONBOARDING" />
-        <View style={{ backgroundColor: C.card, borderRadius: 28, padding: SPACE.xl, alignItems: "center" }}>
+        <View style={{ backgroundColor: C.card, borderRadius: 28, padding: SPACE.xl, alignItems: "center", marginBottom: SPACE.lg }}>
           <Text style={{ fontSize: 48, marginBottom: SPACE.md }}>🎤</Text>
           <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, textAlign: "center" }}>You're in the queue</Text>
           <Text style={{ color: C.muted, textAlign: "center", marginTop: SPACE.sm, lineHeight: 22 }}>
             Venue reviews {venue.slotGenre} applications. Fans can start backing once you're approved.
           </Text>
         </View>
+        <TouchableOpacity
+          onPress={() => onViewVenue(venue.id)}
+          style={{ backgroundColor: ROLE.artist.primary, borderRadius: 18, paddingVertical: 18, alignItems: "center", marginBottom: SPACE.sm }}
+        >
+          <Text style={{ color: C.ink, fontWeight: "900", fontSize: 17 }}>View venue battle</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onBack} style={{ paddingVertical: SPACE.md, alignItems: "center" }}>
+          <Text style={{ color: C.accentSoft, fontWeight: "800" }}>Back to feed</Text>
+        </TouchableOpacity>
       </>
     );
   }
@@ -1931,7 +2167,7 @@ function AdminScreen({
   onApproveArtist,
 }: {
   onBack: () => void;
-  onPublish: () => void;
+  onPublish: (draft: { venueName: string; capacity: number; slotGenre: SlotGenre }) => void;
   artistRoleStatus: ArtistApprovalStatus;
   pendingHandle: string;
   onApproveArtist: () => void;
@@ -1989,10 +2225,47 @@ function AdminScreen({
         <GenrePill genre={slotGenre} large />
         <Text style={{ color: C.muted, lineHeight: 22, marginTop: SPACE.sm }}>Only {slotGenre} artists can apply or be invited. Fans back one pick; highest support wins the booking.</Text>
       </View>
-      <TouchableOpacity onPress={onPublish} style={{ backgroundColor: ROLE.venue.primary, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}>
+      <TouchableOpacity
+        onPress={() => {
+          const name = venueName.trim();
+          if (!name) return;
+          onPublish({ venueName: name, capacity: parseInt(capacity, 10) || 300, slotGenre });
+        }}
+        style={{ backgroundColor: ROLE.venue.primary, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}
+      >
         <Text style={{ color: C.ink, fontWeight: "900" }}>Publish open slot</Text>
       </TouchableOpacity>
     </>
+  );
+}
+
+function ProtoToast({ message, onDismiss }: { message: string | null; onDismiss: () => void }) {
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(onDismiss, 3200);
+    return () => clearTimeout(timer);
+  }, [message, onDismiss]);
+
+  if (!message) return null;
+
+  return (
+    <View
+      style={{
+        position: "absolute",
+        left: SPACE.md,
+        right: SPACE.md,
+        bottom: 96,
+        zIndex: 200,
+        backgroundColor: "#0f172a",
+        borderRadius: 16,
+        paddingHorizontal: SPACE.md,
+        paddingVertical: 14,
+        borderWidth: 1,
+        borderColor: ROLE.fan.border,
+      }}
+    >
+      <Text style={{ color: C.text, fontWeight: "700", lineHeight: 20 }}>{message}</Text>
+    </View>
   );
 }
 
@@ -2017,19 +2290,9 @@ function BottomNav({ activeTab, onTabChange, visible }: { activeTab: Tab; onTabC
   );
 }
 
-const DEMO_TICKET: Ticket = {
-  id: "kontra-velvet",
-  artist: "KONTRA",
-  artistId: "kontra",
-  venue: "Velvet Hall",
-  venueId: "velvet",
-  date: "Thu, Jun 12 · 9:00 PM",
-  seat: "GA · Fanstage winner pick",
-  code: "FS-KONTRA-VELVET-2026",
-};
-
 function AppContent() {
   const [activeTab, setActiveTab] = useState<Tab>("discover");
+  const [venues, setVenues] = useState<VenueCompetition[]>(() => INITIAL_VENUES.map((v) => ({ ...v, artists: v.artists.map((a) => ({ ...a })) })));
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [selectedVenue, setSelectedVenue] = useState<VenueCompetition | null>(null);
   const [selectedArtist, setSelectedArtist] = useState<CompetingArtist | null>(null);
@@ -2039,8 +2302,7 @@ function AppContent() {
   const [genreFilter, setGenreFilter] = useState<GenreFilter>("All");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
   const [venueBackings, setVenueBackings] = useState<Record<string, string>>({});
-  const [userPending, setUserPending] = useState<PendingPick[]>([]);
-  const [showDemoTicket, setShowDemoTicket] = useState(false);
+  const [wonTickets, setWonTickets] = useState<Ticket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [reputation, setReputation] = useState(185);
   const [fanInvites, setFanInvites] = useState<FanInvite[]>([]);
@@ -2049,12 +2311,38 @@ function AppContent() {
   const [artistRoleStatus, setArtistRoleStatus] = useState<ArtistApprovalStatus>("not_applied");
   const [artistStageName, setArtistStageName] = useState("");
   const [artistDetailReturn, setArtistDetailReturn] = useState<ArtistDetailReturn>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [flowEpoch, setFlowEpoch] = useState(0);
   const fanHandle = "mike_seoul";
   const isCurator = true;
 
+  const dismissToast = useCallback(() => setToast(null), []);
+  const showToast = useCallback((msg: string) => setToast(msg), []);
+
+  const activePicks = useMemo(() => buildActivePicks(venues, venueBackings), [venues, venueBackings]);
+
+  const liveVenue = useMemo(() => findLiveVenue(venues, selectedVenue), [venues, selectedVenue]);
+  const liveArtist = useMemo(() => findLiveArtist(liveVenue, selectedArtist), [liveVenue, selectedArtist]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setVenues((prev) => tickVenueCountdowns(prev));
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const hasEnded = venues.some((v) => !v.winnerId && countdownEnded(v.countdown));
+    if (!hasEnded) return;
+    const { venues: resolved, tickets, toast: battleToast } = resolveEndedBattles(venues, venueBackings, wonTickets);
+    setVenues(resolved);
+    if (tickets.length !== wonTickets.length) setWonTickets(tickets);
+    if (battleToast) showToast(battleToast);
+  }, [venues, venueBackings, wonTickets, showToast]);
+
   const catalogVenues = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return VENUE_COMPETITIONS.filter((v) => {
+    return venues.filter((v) => {
       const matchDistrict = district === "All" || v.district === district;
       const matchGenre = genreFilter === "All" || v.slotGenre === genreFilter;
       const matchSearch =
@@ -2065,39 +2353,48 @@ function AppContent() {
         v.artists.some((a) => a.name.toLowerCase().includes(q) || a.genre.toLowerCase().includes(q));
       return matchDistrict && matchGenre && matchSearch;
     });
-  }, [search, district, genreFilter]);
+  }, [search, district, genreFilter, venues]);
 
   const filteredVenues = useMemo(() => {
     if (statusFilter === "All") return catalogVenues;
     return catalogVenues.filter((v) => getVenueMomentum(v) === statusFilter);
   }, [catalogVenues, statusFilter]);
 
+  const openVenueById = (venueId: string) => {
+    const venue = venues.find((v) => v.id === venueId);
+    if (!venue) return;
+    setSelectedVenue(venue);
+    setOverlay("venueDetail");
+  };
+
   const openInvite = (venue?: VenueCompetition) => {
     if (venue) setSelectedVenue(venue);
+    setFlowEpoch((n) => n + 1);
     setOverlay("inviteArtist");
   };
 
   const openApply = (venue?: VenueCompetition) => {
     if (venue) setSelectedVenue(venue);
+    setFlowEpoch((n) => n + 1);
     setOverlay("applyBattle");
   };
 
-  const unlockedTickets = showDemoTicket ? [DEMO_TICKET] : [];
-
   const openVenue = (v: VenueCompetition) => {
-    setSelectedVenue(v);
+    setSelectedVenue(venues.find((x) => x.id === v.id) ?? v);
     setOverlay("venueDetail");
   };
 
   const openArtist = (v: VenueCompetition, a: CompetingArtist, returnTo: ArtistDetailReturn = "discover") => {
-    setSelectedVenue(v);
-    setSelectedArtist(a);
+    const venue = venues.find((x) => x.id === v.id) ?? v;
+    const artist = venue.artists.find((x) => x.id === a.id) ?? a;
+    setSelectedVenue(venue);
+    setSelectedArtist(artist);
     setArtistDetailReturn(returnTo);
     setOverlay("artistDetail");
   };
 
   const openArtistFromTicket = (ticket: Ticket) => {
-    const ctx = resolveArtist({
+    const ctx = resolveArtist(venues, {
       venueId: ticket.venueId,
       artistId: ticket.artistId,
       artistName: ticket.artist,
@@ -2107,7 +2404,7 @@ function AppContent() {
   };
 
   const openArtistFromPick = (pick: PendingPick) => {
-    const ctx = resolveArtist({ venueId: pick.venueId, artistId: pick.artistId, artistName: pick.artist, venueName: pick.venue });
+    const ctx = resolveArtist(venues, { venueId: pick.venueId, artistId: pick.artistId, artistName: pick.artist, venueName: pick.venue });
     if (ctx) openArtist(ctx.venue, ctx.artist, "tickets");
   };
 
@@ -2125,9 +2422,20 @@ function AppContent() {
   };
 
   const tryBackArtist = (v: VenueCompetition, a: CompetingArtist) => {
-    if (v.winnerId) return;
+    if (v.winnerId) {
+      showToast("This battle already has a winner.");
+      return;
+    }
     const existing = venueBackings[v.id];
-    if (existing && existing !== a.id) return;
+    if (existing && existing !== a.id) {
+      const locked = v.artists.find((x) => x.id === existing);
+      showToast(`Already backing ${locked?.name ?? "another artist"} at ${v.venueName}.`);
+      return;
+    }
+    if (existing === a.id) {
+      showToast(`You're already backing ${a.name} here.`);
+      return;
+    }
     setSelectedVenue(v);
     setSelectedArtist(a);
     setBackingStep("review");
@@ -2135,27 +2443,12 @@ function AppContent() {
   };
 
   const completeBacking = () => {
-    if (!selectedVenue || !selectedArtist) return;
-    setVenueBackings((prev) => ({ ...prev, [selectedVenue.id]: selectedArtist.id }));
-    const sorted = sortedArtists(selectedVenue);
-    const rank = sorted.findIndex((x) => x.id === selectedArtist.id) + 1;
-    setUserPending((prev) => {
-      if (prev.some((p) => p.venueId === selectedVenue.id)) return prev;
-      return [
-        ...prev,
-        {
-          id: `${selectedVenue.id}-${selectedArtist.id}`,
-          venueId: selectedVenue.id,
-          artistId: selectedArtist.id,
-          artist: selectedArtist.name,
-          venue: selectedVenue.venueName,
-          countdown: formatCountdown(selectedVenue.countdown),
-          rank: `#${rank} of ${sorted.length}`,
-        },
-      ];
-    });
+    if (!liveVenue || !liveArtist) return;
+    setVenueBackings((prev) => ({ ...prev, [liveVenue.id]: liveArtist.id }));
+    setVenues((prev) => bumpArtistSupport(prev, liveVenue.id, liveArtist.id));
     setOverlay("backingConfirmation");
     setReputation((r) => r + 25);
+    showToast(`+1 supporter for ${liveArtist.name}. Rally more backers before voting ends.`);
   };
 
   const closeOverlay = () => {
@@ -2185,25 +2478,30 @@ function AppContent() {
     if (overlay === "inviteArtist") {
       return (
         <InviteArtistFlow
-          venues={filteredVenues.length ? filteredVenues : VENUE_COMPETITIONS}
-          preselectedVenue={selectedVenue}
+          key={`invite-${flowEpoch}`}
+          venues={filteredVenues.length ? filteredVenues : venues}
+          preselectedVenue={liveVenue}
           onBack={closeOverlay}
           onSubmit={(inv) => {
             setFanInvites((prev) => [...prev, inv]);
             setReputation((r) => r + 15);
+            showToast(`Invite sent for ${inv.profileId} · ${inv.genre}.`);
           }}
+          onViewVenue={openVenueById}
         />
       );
     }
     if (overlay === "applyBattle") {
       return (
         <ApplyBattleFlow
-          venues={VENUE_COMPETITIONS}
-          preselectedVenue={selectedVenue}
+          key={`apply-${flowEpoch}`}
+          venues={venues}
+          preselectedVenue={liveVenue}
           onBack={closeOverlay}
           onSubmit={(app) => {
             setArtistApplications((prev) => [...prev, app]);
             setReputation((r) => r + 10);
+            showToast(`Application submitted for ${app.artistName}.`);
           }}
           onArtistRolePending={(name) => {
             if (artistRoleStatus === "not_applied") {
@@ -2211,6 +2509,7 @@ function AppContent() {
               setArtistStageName(name);
             }
           }}
+          onViewVenue={openVenueById}
         />
       );
     }
@@ -2218,31 +2517,59 @@ function AppContent() {
       return (
         <AdminScreen
           onBack={closeOverlay}
-          onPublish={() => { closeOverlay(); setActiveTab("discover"); }}
+          onPublish={(draft) => {
+            const id = `venue-${Date.now()}`;
+            const newVenue: VenueCompetition = {
+              id,
+              venueName: draft.venueName,
+              district: "Hongdae",
+              address: "New slot · Fanstage curator publish",
+              capacity: draft.capacity,
+              slotLabel: "Opening weekend · 8PM",
+              slotDate: "TBA",
+              countdown: { days: 5, hours: 0, minutes: 0 },
+              unlockGoal: 80,
+              slotGenre: draft.slotGenre,
+              slotsOpen: 3,
+              artists: [],
+            };
+            setVenues((prev) => [newVenue, ...prev]);
+            closeOverlay();
+            setActiveTab("discover");
+            showToast(`${draft.venueName} is live on Discover.`);
+          }}
           artistRoleStatus={artistRoleStatus}
           pendingHandle={fanHandle}
           onApproveArtist={() => {
             setArtistRoleStatus("approved");
             if (!artistStageName) setArtistStageName("Mike Seoul");
+            showToast("Artist role approved. Switch modes in Profile.");
           }}
         />
       );
     }
-    if (overlay === "backingConfirmation" && selectedVenue && selectedArtist) {
+    if (overlay === "backingConfirmation" && liveVenue && liveArtist) {
       return (
         <BackingConfirmationScreen
-          artist={selectedArtist}
-          venue={selectedVenue}
-          onViewTickets={() => { setOverlay(null); setActiveTab("tickets"); }}
-          onFeed={() => { closeOverlay(); setActiveTab("discover"); }}
+          artist={liveArtist}
+          venue={liveVenue}
+          onViewTickets={() => {
+            setOverlay(null);
+            setSelectedArtist(null);
+            setActiveTab("tickets");
+          }}
+          onFeed={() => {
+            closeOverlay();
+            setActiveTab("discover");
+          }}
         />
       );
     }
-    if (overlay === "backingFlow" && selectedVenue && selectedArtist) {
+    if (overlay === "backingFlow" && liveVenue && liveArtist) {
       return (
         <BackingFlowScreen
-          artist={selectedArtist}
-          venue={selectedVenue}
+          artist={liveArtist}
+          venue={liveVenue}
           step={backingStep}
           onBack={() => {
             if (backingStep === "confirmed") setBackingStep("review");
@@ -2255,20 +2582,20 @@ function AppContent() {
         />
       );
     }
-    if (overlay === "artistDetail" && selectedVenue && selectedArtist) {
-      const matchedTicket = unlockedTickets.find(
+    if (overlay === "artistDetail" && liveVenue && liveArtist) {
+      const matchedTicket = wonTickets.find(
         (t) =>
-          (t.artistId && t.artistId === selectedArtist.id) ||
-          (t.artist === selectedArtist.name && t.venue === selectedVenue.venueName)
+          (t.artistId && t.artistId === liveArtist.id) ||
+          (t.artist === liveArtist.name && t.venue === liveVenue.venueName)
       );
       return (
         <ArtistDetailScreen
-          artist={selectedArtist}
-          venue={selectedVenue}
-          isUserPick={venueBackings[selectedVenue.id] === selectedArtist.id}
-          statusLabel={getArtistStatusLabel(selectedVenue, selectedArtist, venueBackings[selectedVenue.id])}
+          artist={liveArtist}
+          venue={liveVenue}
+          isUserPick={venueBackings[liveVenue.id] === liveArtist.id}
+          statusLabel={getArtistStatusLabel(liveVenue, liveArtist, venueBackings[liveVenue.id])}
           onBack={closeArtistDetail}
-          onBackArtist={() => tryBackArtist(selectedVenue, selectedArtist)}
+          onBackArtist={() => tryBackArtist(liveVenue, liveArtist)}
           onViewTicket={
             matchedTicket
               ? () => {
@@ -2280,18 +2607,18 @@ function AppContent() {
         />
       );
     }
-    if (overlay === "venueDetail" && selectedVenue) {
+    if (overlay === "venueDetail" && liveVenue) {
       return (
         <VenueDetailScreen
-          venue={selectedVenue}
-          userPickId={venueBackings[selectedVenue.id]}
-          venueInvites={fanInvites.filter((i) => i.venueId === selectedVenue.id)}
-          venueApplications={artistApplications.filter((a) => a.venueId === selectedVenue.id)}
+          venue={liveVenue}
+          userPickId={venueBackings[liveVenue.id]}
+          venueInvites={fanInvites.filter((i) => i.venueId === liveVenue.id)}
+          venueApplications={artistApplications.filter((a) => a.venueId === liveVenue.id)}
           onBack={closeOverlay}
-          onOpenArtist={(a) => openArtist(selectedVenue, a, "venueDetail")}
-          onBackArtist={(a) => tryBackArtist(selectedVenue, a)}
-          onInvite={() => openInvite(selectedVenue)}
-          onApply={() => openApply(selectedVenue)}
+          onOpenArtist={(a) => openArtist(liveVenue, a, "venueDetail")}
+          onBackArtist={(a) => tryBackArtist(liveVenue, a)}
+          onInvite={() => openInvite(liveVenue)}
+          onApply={() => openApply(liveVenue)}
         />
       );
     }
@@ -2303,19 +2630,13 @@ function AppContent() {
     switch (activeTab) {
       case "tickets":
         return (
-          <>
-            <TicketsScreen
-              unlocked={unlockedTickets}
-              pending={userPending}
-              onOpenArtistFromTicket={openArtistFromTicket}
-              onOpenArtistFromPick={openArtistFromPick}
-            />
-            {!showDemoTicket && overlay === null ? (
-              <TouchableOpacity onPress={() => setShowDemoTicket(true)} style={{ alignItems: "center", padding: SPACE.md }}>
-                <Text style={{ color: C.dim, fontSize: 12, fontWeight: "700" }}>Demo: load KONTRA winner ticket</Text>
-              </TouchableOpacity>
-            ) : null}
-          </>
+          <TicketsScreen
+            unlocked={wonTickets}
+            pending={activePicks}
+            onOpenArtistFromTicket={openArtistFromTicket}
+            onOpenArtistFromPick={openArtistFromPick}
+            onExploreBattles={() => setActiveTab("discover")}
+          />
         );
       case "profile":
         return (
@@ -2332,10 +2653,7 @@ function AppContent() {
             battleApplications={artistApplications.length}
             artistRoleStatus={artistRoleStatus}
             artistStageName={artistStageName}
-            onApplyForArtist={() => {
-              setArtistRoleStatus("pending");
-              if (!artistStageName) setArtistStageName("Mike Seoul");
-            }}
+            onApplyForArtist={() => openApply()}
             onOpenAdmin={() => setOverlay("admin")}
             isCurator={isCurator}
           />
@@ -2367,13 +2685,7 @@ function AppContent() {
     }
   };
 
-  const hideNav =
-    overlay === "backingFlow" ||
-    overlay === "backingConfirmation" ||
-    overlay === "inviteArtist" ||
-    overlay === "applyBattle" ||
-    overlay === "admin" ||
-    overlay === "ticketQr";
+  const hideNav = overlay !== null;
 
   const overlayContent = renderOverlayContent();
 
@@ -2385,6 +2697,7 @@ function AppContent() {
       {overlayContent ? (
         <View style={SCREEN_OVERLAY}>
           <ScrollView
+            style={{ flex: 1 }}
             contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 120 }}
             showsVerticalScrollIndicator={false}
           >
@@ -2393,6 +2706,7 @@ function AppContent() {
         </View>
       ) : null}
       <BottomNav activeTab={activeTab} onTabChange={handleTabChange} visible={!hideNav} />
+      <ProtoToast message={toast} onDismiss={dismissToast} />
     </SafeAreaView>
   );
 }
