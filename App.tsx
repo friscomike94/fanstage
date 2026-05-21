@@ -33,6 +33,7 @@ const C = {
 
 const SPACE = { xs: 8, sm: 12, md: 20, lg: 28, xl: 36 };
 const BACKING_PRICE = "₩5,000";
+const FANSTAGE_TAGLINE = "Fanstage is where fans make the stage happen.";
 
 const SCREEN_OVERLAY = {
   position: "absolute" as const,
@@ -281,7 +282,21 @@ type PendingPick = {
   venue: string;
   countdown: string;
   rank: string;
+  momentum: VenueMomentum;
+  supporterGap: number;
 };
+
+type RefundedPick = {
+  id: string;
+  venueId: string;
+  artistId: string;
+  artist: string;
+  venue: string;
+  winnerName: string;
+  refundedAmount: string;
+};
+
+type TicketWalletFilter = "all" | "live" | "ticket" | "refund";
 
 type ArtistDetailReturn = null | "venueDetail" | "tickets" | "discover";
 
@@ -505,6 +520,8 @@ function buildActivePicks(venues: VenueCompetition[], venueBackings: Record<stri
       if (!artist) return null;
       const sorted = sortedArtists(venue);
       const rank = sorted.findIndex((a) => a.id === artistId) + 1;
+      const leader = sorted[0];
+      const gap = leader.id === artistId ? 0 : leader.supporters - artist.supporters;
       return {
         id: `${venueId}-${artistId}`,
         venueId,
@@ -513,9 +530,54 @@ function buildActivePicks(venues: VenueCompetition[], venueBackings: Record<stri
         venue: venue.venueName,
         countdown: formatCountdown(venue.countdown),
         rank: `#${rank} of ${sorted.length}`,
+        momentum: getVenueMomentum(venue),
+        supporterGap: gap,
       };
     })
     .filter((p): p is PendingPick => p !== null);
+}
+
+function buildRefundedPicks(venues: VenueCompetition[], venueBackings: Record<string, string>): RefundedPick[] {
+  return Object.entries(venueBackings)
+    .map(([venueId, artistId]) => {
+      const venue = venues.find((v) => v.id === venueId);
+      if (!venue?.winnerId || venue.winnerId === artistId) return null;
+      const artist = venue.artists.find((a) => a.id === artistId);
+      const winner = venue.artists.find((a) => a.id === venue.winnerId);
+      return {
+        id: `refund-${venueId}-${artistId}`,
+        venueId,
+        artistId,
+        artist: artist?.name ?? "Your pick",
+        venue: venue.venueName,
+        winnerName: winner?.name ?? "Winner",
+        refundedAmount: BACKING_PRICE,
+      };
+    })
+    .filter((p): p is RefundedPick => p !== null);
+}
+
+function seedTicketWalletState(): {
+  venues: VenueCompetition[];
+  venueBackings: Record<string, string>;
+  wonTickets: Ticket[];
+} {
+  const venues = INITIAL_VENUES.map((v) => {
+    const base = { ...v, artists: v.artists.map((a) => ({ ...a })) };
+    if (v.id === "modeci") {
+      return { ...base, winnerId: "neon", slotsOpen: 0, countdown: { days: 0, hours: 0, minutes: 0 } };
+    }
+    return base;
+  });
+  const venueBackings: Record<string, string> = {
+    rolling: "minu",
+    modeci: "neon",
+    velvet: "sable",
+  };
+  const modeci = venues.find((v) => v.id === "modeci")!;
+  const neon = modeci.artists.find((a) => a.id === "neon")!;
+  const wonTickets = [createWinnerTicket(modeci, neon)];
+  return { venues, venueBackings, wonTickets };
 }
 
 function bumpArtistSupport(venues: VenueCompetition[], venueId: string, artistId: string): VenueCompetition[] {
@@ -806,48 +868,6 @@ function RoleSwitcher({
   );
 }
 
-function FanIdentityBar({
-  handle,
-  reputation,
-  invites,
-  onInvite,
-  onApply,
-}: {
-  handle: string;
-  reputation: number;
-  invites: number;
-  onInvite: () => void;
-  onApply: () => void;
-}) {
-  const level = getFanLevel(reputation);
-  return (
-    <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.xl, borderWidth: 1, borderColor: ROLE.fan.border }}>
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: SPACE.md }}>
-        <View style={{ flex: 1 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", marginBottom: SPACE.xs }}>
-            <Text style={{ color: ROLE.fan.soft, fontSize: 11, fontWeight: "700", marginRight: SPACE.sm }}>FAN IDENTITY</Text>
-            <FanLevelBadge reputation={reputation} />
-          </View>
-          <Text style={{ color: C.text, fontSize: 20, fontWeight: "900" }}>@{handle}</Text>
-          <Text style={{ color: level.color, fontWeight: "800", marginTop: 4 }}>{reputation} rep</Text>
-        </View>
-        <View style={{ alignItems: "flex-end" }}>
-          <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 22 }}>{invites}</Text>
-          <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>invites sent</Text>
-        </View>
-      </View>
-      <View style={{ flexDirection: "row" }}>
-        <TouchableOpacity onPress={onInvite} style={{ flex: 1, backgroundColor: ROLE.fan.bg, borderRadius: 14, paddingVertical: 12, alignItems: "center", marginRight: SPACE.xs, borderWidth: 1, borderColor: ROLE.fan.border }}>
-          <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 13 }}>Invite artist</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={onApply} style={{ flex: 1, backgroundColor: C.surface, borderRadius: 14, paddingVertical: 12, alignItems: "center", marginLeft: SPACE.xs, borderWidth: 1, borderColor: ROLE.artist.border }}>
-          <Text style={{ color: ROLE.artist.soft, fontWeight: "900", fontSize: 13 }}>Apply to battle</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
-
 function LiveBadgeStatic() {
   return (
     <View
@@ -892,13 +912,15 @@ function LiveBadgeStatic() {
   );
 }
 
-const HERO_HEIGHT = 300;
+const HERO_HEIGHT = 380;
+const HERO_CONTENT_PAD_TOP = 52;
+const HERO_CONTENT_PAD_BOTTOM = 40;
 const HERO_SLIDES = ["home", "branding", "rules"] as const;
 const HERO_SLIDE_LABELS = ["Start", "Brand", "Rules"];
 
 function HeroPagerDots({ count, active }: { count: number; active: number }) {
   return (
-    <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: SPACE.sm }}>
+    <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: SPACE.md }}>
       {Array.from({ length: count }).map((_, i) => (
         <View
           key={i}
@@ -936,7 +958,7 @@ function HeroSlideShell({
           opacity: 0.25,
         }}
       />
-      <View style={{ paddingHorizontal: SPACE.lg, paddingTop: 32, paddingBottom: 32 }}>{children}</View>
+      <View style={{ paddingHorizontal: SPACE.lg, paddingTop: HERO_CONTENT_PAD_TOP, paddingBottom: HERO_CONTENT_PAD_BOTTOM }}>{children}</View>
     </View>
   );
 }
@@ -971,20 +993,20 @@ function HeroHomeSlide() {
           opacity: 0.25,
         }}
       />
-      <View style={{ paddingHorizontal: SPACE.lg, paddingTop: 36, paddingBottom: 36 }}>
+      <View style={{ paddingHorizontal: SPACE.lg, paddingTop: HERO_CONTENT_PAD_TOP, paddingBottom: HERO_CONTENT_PAD_BOTTOM }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
           <Text style={{ color: C.dim, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>FANSTAGE · SEOUL</Text>
           <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 11 }}>Swipe →</Text>
         </View>
-        <Text style={{ color: C.text, fontSize: 44, fontWeight: "900", lineHeight: 48, marginTop: 16, letterSpacing: -1.2 }}>
-          The room{"\n"}decides.
+        <Text style={{ color: C.text, fontSize: 26, fontWeight: "900", lineHeight: 32, marginTop: 20, letterSpacing: -0.6, maxWidth: 340 }}>
+          {FANSTAGE_TAGLINE}
         </Text>
-        <Text style={{ color: C.muted, fontSize: 15, lineHeight: 22, marginTop: 18, maxWidth: 320, fontWeight: "500" }}>
-          Genre-locked venue battles. One pick. Highest support wins the slot.
+        <Text style={{ color: ROLE.fan.soft, fontSize: 14, lineHeight: 20, marginTop: 14, maxWidth: 320, fontWeight: "700" }}>
+          Genre-locked venue battles · one pick · highest support wins the slot
         </Text>
-        <View style={{ flexDirection: "row", marginTop: 28, alignItems: "center" }}>
+        <View style={{ flexDirection: "row", marginTop: 22, alignItems: "center" }}>
           <LiveBadgeStatic />
-          <Text style={{ color: C.dim, marginLeft: 14, fontWeight: "600", fontSize: 12, letterSpacing: 0.3 }}>♪ Live culture · Seoul</Text>
+          <Text style={{ color: C.dim, marginLeft: 14, fontWeight: "600", fontSize: 12, letterSpacing: 0.3 }}>Fans make the stage · Seoul</Text>
         </View>
       </View>
     </View>
@@ -995,13 +1017,13 @@ function HeroBrandingSlide() {
   return (
     <HeroSlideShell accent="#3b0764">
       <Text style={{ color: C.rival, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>BRANDING</Text>
-      <Text style={{ color: C.text, fontSize: 32, fontWeight: "900", lineHeight: 36, marginTop: 10, letterSpacing: -0.8 }}>Fanstage</Text>
-      <Text style={{ color: ROLE.fan.soft, fontWeight: "800", fontSize: 14, marginTop: 6 }}>Seoul live culture, crowd-funded</Text>
+      <Text style={{ color: C.text, fontSize: 28, fontWeight: "900", lineHeight: 32, marginTop: 8, letterSpacing: -0.6 }}>Fanstage</Text>
+      <Text style={{ color: ROLE.fan.soft, fontWeight: "800", fontSize: 15, lineHeight: 22, marginTop: 10 }}>{FANSTAGE_TAGLINE}</Text>
       <View style={{ marginTop: SPACE.md }}>
         {[
-          { icon: "♪", title: "Venue-first", body: "Real rooms. Real slots." },
-          { icon: "⚔", title: "Genre-locked", body: "Indie · electronic · hip-hop · jazz" },
-          { icon: "◎", title: "Fan-powered", body: "Your backing picks the headline." },
+          { icon: "♪", title: "Fans lead", body: "Your pick shapes who takes the stage." },
+          { icon: "⚔", title: "Venues open", body: "Real rooms. Genre-locked battles." },
+          { icon: "◎", title: "Stage happens", body: "Highest support wins the headline slot." },
         ].map((item) => (
           <View key={item.title} style={{ flexDirection: "row", marginBottom: SPACE.sm, alignItems: "center" }}>
             <View
@@ -1034,11 +1056,11 @@ function HeroRulesSlide() {
   return (
     <HeroSlideShell accent="#422006">
       <Text style={{ color: C.gold, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>BATTLE RULES</Text>
-      <Text style={{ color: C.text, fontSize: 28, fontWeight: "900", lineHeight: 32, marginTop: 10, letterSpacing: -0.6 }}>
-        How it works
+      <Text style={{ color: C.text, fontSize: 22, fontWeight: "900", lineHeight: 28, marginTop: 10, letterSpacing: -0.4 }}>
+        How fans make the stage happen
       </Text>
-      <Text style={{ color: C.muted, fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 10 }}>
-        One fan, one pick per venue.
+      <Text style={{ color: ROLE.fan.soft, fontSize: 12, lineHeight: 17, marginTop: 6, marginBottom: 10, fontWeight: "700" }}>
+        One fan, one pick per venue — your backing decides the lineup.
       </Text>
       {[
         `One pick per venue · ${BACKING_PRICE} deposit`,
@@ -1051,7 +1073,7 @@ function HeroRulesSlide() {
           <Text style={{ color: "#cbd5e1", flex: 1, lineHeight: 16, fontSize: 12, fontWeight: "600" }}>{rule}</Text>
         </View>
       ))}
-      <Text style={{ color: C.rival, fontWeight: "700", fontSize: 11, marginTop: 10 }}>Swipe ← · back a pick below</Text>
+      <Text style={{ color: C.rival, fontWeight: "700", fontSize: 11, marginTop: 10 }}>{FANSTAGE_TAGLINE}</Text>
     </HeroSlideShell>
   );
 }
@@ -1067,7 +1089,7 @@ function LandingHero() {
   };
 
   return (
-    <View style={{ marginBottom: SPACE.xl }}>
+    <View style={{ marginTop: SPACE.lg, marginBottom: SPACE.xl }}>
       <View style={{ borderRadius: 24, overflow: "hidden" }}>
         <ScrollView
           horizontal
@@ -1199,62 +1221,6 @@ function UnfoldableFilters({
           </View>
         </View>
       ) : null}
-    </View>
-  );
-}
-
-function FeaturedGenreBattle({
-  venues,
-  onOpenVenue,
-}: {
-  venues: VenueCompetition[];
-  onOpenVenue: (v: VenueCompetition) => void;
-}) {
-  const active = venues.filter((v) => !v.winnerId);
-  const featured =
-    active.find((v) => v.slotGenre === "Electronic") ?? active.find((v) => v.slotGenre === "Indie") ?? active[0];
-  if (!featured) return null;
-
-  const leader = sortedArtists(featured)[0];
-  const momentum = getVenueMomentum(featured);
-
-  return (
-    <View style={{ marginBottom: SPACE.xl }}>
-      <Text style={{ color: C.dim, fontWeight: "700", fontSize: 10, letterSpacing: 2.4, marginBottom: 12 }}>FEATURED GENRE BATTLE</Text>
-      <TouchableOpacity
-        onPress={() => onOpenVenue(featured)}
-        activeOpacity={0.92}
-        style={{
-          backgroundColor: "#0c121f",
-          borderRadius: 20,
-          padding: SPACE.lg,
-          borderWidth: 1,
-          borderColor: "#ffffff12",
-          borderLeftWidth: 4,
-          borderLeftColor: ROLE.artist.primary,
-        }}
-      >
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <View style={{ flex: 1, paddingRight: SPACE.md }}>
-            <Text style={{ color: ROLE.artist.soft, fontWeight: "800", fontSize: 11, letterSpacing: 1.8 }}>{featured.slotGenre.toUpperCase()}</Text>
-            <Text style={{ color: C.text, fontSize: 24, fontWeight: "900", marginTop: 8, letterSpacing: -0.5 }}>{featured.venueName}</Text>
-            <Text style={{ color: C.muted, marginTop: 6, fontSize: 14, fontWeight: "500" }}>{featured.district} · {featured.artists.length} artists</Text>
-          </View>
-          <Text style={{ color: C.dim, fontSize: 28, opacity: 0.35 }}>♪</Text>
-        </View>
-        <View style={{ height: 1, backgroundColor: "#ffffff10", marginVertical: 18 }} />
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <View>
-            <Text style={{ color: C.dim, fontSize: 10, fontWeight: "700", letterSpacing: 0.8 }}>LEADING ACT</Text>
-            <Text style={{ color: C.text, fontWeight: "800", fontSize: 15, marginTop: 4 }}>{leader.name}</Text>
-          </View>
-          <View style={{ alignItems: "flex-end" }}>
-            <Text style={{ color: C.dim, fontSize: 10, fontWeight: "700" }}>MOMENTUM</Text>
-            <Text style={{ color: C.muted, fontWeight: "700", fontSize: 12, marginTop: 4 }}>{momentum}</Text>
-          </View>
-        </View>
-        <Text style={{ color: ROLE.fan.soft, fontWeight: "700", fontSize: 12, marginTop: 16 }}>Open battle →</Text>
-      </TouchableOpacity>
     </View>
   );
 }
@@ -1577,62 +1543,52 @@ function VenueCard({
   );
 }
 
+function VenueFeedHeading({ openCount }: { openCount: number }) {
+  return (
+    <View style={{ marginBottom: SPACE.lg }}>
+      <Text style={{ color: ROLE.venue.soft, fontWeight: "700", fontSize: 10, letterSpacing: 2.4 }}>VENUES · SEOUL</Text>
+      <Text style={{ color: C.text, fontWeight: "900", fontSize: 34, lineHeight: 38, marginTop: 10, letterSpacing: -0.8 }}>
+        Halls · Clubs · Stages
+      </Text>
+      <Text style={{ color: C.muted, fontSize: 15, lineHeight: 22, marginTop: SPACE.sm, fontWeight: "500" }}>
+        Real rooms with open genre slots — {openCount} battle{openCount === 1 ? "" : "s"} live now
+      </Text>
+    </View>
+  );
+}
+
 function VenueFeedScreen({
-  fanHandle,
-  reputation,
-  inviteCount,
-  search,
-  onSearchChange,
   district,
   onDistrictChange,
   genreFilter,
   onGenreFilterChange,
   statusFilter,
   onStatusFilterChange,
-  allVenues,
   venues,
   venueBackings,
   onOpenVenue,
   onOpenArtist,
   onBackArtist,
-  onInvite,
-  onApply,
 }: {
-  fanHandle: string;
-  reputation: number;
-  inviteCount: number;
-  search: string;
-  onSearchChange: (t: string) => void;
   district: DistrictFilter;
   onDistrictChange: (d: DistrictFilter) => void;
   genreFilter: GenreFilter;
   onGenreFilterChange: (g: GenreFilter) => void;
   statusFilter: StatusFilter;
   onStatusFilterChange: (s: StatusFilter) => void;
-  allVenues: VenueCompetition[];
   venues: VenueCompetition[];
   venueBackings: Record<string, string>;
   onOpenVenue: (v: VenueCompetition) => void;
   onOpenArtist: (v: VenueCompetition, a: CompetingArtist) => void;
   onBackArtist: (v: VenueCompetition, a: CompetingArtist) => void;
-  onInvite: () => void;
-  onApply: () => void;
 }) {
+  const openCount = venues.filter((v) => !v.winnerId).length;
+
   return (
     <>
       <LandingHero />
 
-      <FanIdentityBar handle={fanHandle} reputation={reputation} invites={inviteCount} onInvite={onInvite} onApply={onApply} />
-
-      <View style={{ backgroundColor: "#0c121f", borderRadius: 14, paddingHorizontal: SPACE.md, paddingVertical: 16, marginBottom: SPACE.lg, borderWidth: 1, borderColor: "#ffffff0d" }}>
-        <TextInput
-          placeholder="Venues, artists, districts…"
-          placeholderTextColor={C.dim}
-          value={search}
-          onChangeText={onSearchChange}
-          style={{ color: C.text, fontSize: 15, fontWeight: "500" }}
-        />
-      </View>
+      <VenueFeedHeading openCount={openCount} />
 
       <UnfoldableFilters
         genreFilter={genreFilter}
@@ -1643,16 +1599,7 @@ function VenueFeedScreen({
         onStatusFilterChange={onStatusFilterChange}
       />
 
-      <FeaturedGenreBattle venues={allVenues} onOpenVenue={onOpenVenue} />
-
-      <View style={{ marginBottom: 28 }}>
-        <Text style={{ color: C.dim, fontWeight: "700", fontSize: 10, letterSpacing: 2.4 }}>ACTIVE VENUE BATTLES</Text>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginTop: 10 }}>
-          <Text style={{ color: C.text, fontWeight: "900", fontSize: 26, letterSpacing: -0.6 }}>{venues.length}</Text>
-          <Text style={{ color: C.dim, fontWeight: "600", fontSize: 13 }}>open slots</Text>
-        </View>
-        <Text style={{ color: C.dim, fontSize: 12, marginTop: 8, fontWeight: "500" }}>One backing per venue · genre-locked lineups</Text>
-      </View>
+      <SectionLabel>OPEN BATTLES</SectionLabel>
 
       {venues.length === 0 ? (
         <Text style={{ color: C.muted, textAlign: "center", padding: SPACE.xl }}>No slots match your filters.</Text>
@@ -1909,7 +1856,7 @@ function BackingFlowScreen({
             You're in the fight for {artist.name}
           </Text>
           <Text style={{ color: C.muted, marginTop: SPACE.sm, textAlign: "center", lineHeight: 22 }}>
-            {BACKING_PRICE} held until the venue battle ends. If they win, you get the ticket.
+            {BACKING_PRICE} held until the battle ends — you're helping make the stage happen. Win = ticket.
           </Text>
         </View>
         <TouchableOpacity onPress={onConfirmReview} style={{ backgroundColor: C.accent, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}>
@@ -1998,66 +1945,262 @@ function QrMock({ code }: { code: string }) {
   );
 }
 
+function TicketStatusPill({ label, color, bg }: { label: string; color: string; bg: string }) {
+  return (
+    <View style={{ backgroundColor: bg, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: `${color}55` }}>
+      <Text style={{ color, fontWeight: "900", fontSize: 10, letterSpacing: 0.6 }}>{label}</Text>
+    </View>
+  );
+}
+
 function TicketsScreen({
   unlocked,
   pending,
+  refunded,
   onOpenArtistFromTicket,
   onOpenArtistFromPick,
+  onOpenArtistFromRefund,
+  onOpenTicketQr,
   onExploreBattles,
 }: {
   unlocked: Ticket[];
   pending: PendingPick[];
+  refunded: RefundedPick[];
   onOpenArtistFromTicket: (t: Ticket) => void;
   onOpenArtistFromPick: (p: PendingPick) => void;
+  onOpenArtistFromRefund: (r: RefundedPick) => void;
+  onOpenTicketQr: (t: Ticket) => void;
   onExploreBattles: () => void;
 }) {
+  const [filter, setFilter] = useState<TicketWalletFilter>("all");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const counts = { live: pending.length, ticket: unlocked.length, refund: refunded.length };
+  const total = counts.live + counts.ticket + counts.refund;
+
+  const filters: { id: TicketWalletFilter; label: string; count: number; color: string; bg: string }[] = [
+    { id: "all", label: "All", count: total, color: C.text, bg: C.surface },
+    { id: "live", label: "Live", count: counts.live, color: C.gold, bg: "#422006" },
+    { id: "ticket", label: "Tickets", count: counts.ticket, color: C.accent, bg: "#14532d" },
+    { id: "refund", label: "Refunded", count: counts.refund, color: "#94a3b8", bg: "#1e293b" },
+  ];
+
+  const showLive = filter === "all" || filter === "live";
+  const showTicket = filter === "all" || filter === "ticket";
+  const showRefund = filter === "all" || filter === "refund";
+
+  const toggleExpand = (id: string) => setExpandedId((prev) => (prev === id ? null : id));
+
   return (
     <>
-      <ScreenHeader title="My tickets" subtitle="Tap a ticket or active battle to view the artist." />
-      <SectionLabel>WINNER TICKETS</SectionLabel>
-      {unlocked.length === 0 ? (
-        <View style={{ backgroundColor: C.surface, borderRadius: 28, padding: SPACE.xl, alignItems: "center", marginBottom: SPACE.lg, borderWidth: 1, borderColor: C.border, borderStyle: "dashed" }}>
+      <ScreenHeader title="My tickets" subtitle="Track live picks, winner passes, and venue refunds." />
+
+      <View style={{ flexDirection: "row", marginBottom: SPACE.md, gap: SPACE.xs }}>
+        {[
+          { label: "Live picks", value: counts.live, color: C.gold },
+          { label: "Tickets", value: counts.ticket, color: C.accent },
+          { label: "Refunded", value: counts.refund, color: C.muted },
+        ].map((stat) => (
+          <View key={stat.label} style={{ flex: 1, backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ color: C.dim, fontSize: 10, fontWeight: "700" }}>{stat.label.toUpperCase()}</Text>
+            <Text style={{ color: stat.color, fontWeight: "900", fontSize: 26, marginTop: 4 }}>{stat.value}</Text>
+          </View>
+        ))}
+      </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: SPACE.lg, flexGrow: 0 }}>
+        {filters.map((f) => {
+          const on = filter === f.id;
+          return (
+            <TouchableOpacity
+              key={f.id}
+              onPress={() => setFilter(f.id)}
+              style={{
+                backgroundColor: on ? f.bg : C.surface,
+                borderRadius: 999,
+                paddingHorizontal: 16,
+                paddingVertical: 10,
+                marginRight: SPACE.sm,
+                borderWidth: 1,
+                borderColor: on ? `${f.color}66` : C.border,
+                flexDirection: "row",
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ color: on ? f.color : C.dim, fontWeight: "900", fontSize: 13 }}>{f.label}</Text>
+              <View style={{ marginLeft: 8, backgroundColor: on ? "#00000033" : C.card, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
+                <Text style={{ color: on ? f.color : C.dim, fontWeight: "900", fontSize: 11 }}>{f.count}</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {total === 0 ? (
+        <View style={{ backgroundColor: C.surface, borderRadius: 28, padding: SPACE.xl, alignItems: "center", borderWidth: 1, borderColor: C.border, borderStyle: "dashed" }}>
           <Text style={{ fontSize: 36, marginBottom: SPACE.md }}>🎫</Text>
-          <Text style={{ color: C.text, fontWeight: "900", fontSize: 18 }}>No winner tickets yet</Text>
-          <Text style={{ color: C.muted, textAlign: "center", marginTop: SPACE.sm, lineHeight: 22 }}>
-            When your backed artist wins a venue battle, your deposit converts to a ticket here.
-          </Text>
-          <TouchableOpacity
-            onPress={onExploreBattles}
-            style={{ marginTop: SPACE.lg, backgroundColor: C.accent, borderRadius: 14, paddingHorizontal: SPACE.lg, paddingVertical: 12 }}
-          >
-            <Text style={{ color: C.ink, fontWeight: "900" }}>Explore venue battles</Text>
+          <Text style={{ color: C.text, fontWeight: "900", fontSize: 18 }}>No picks yet</Text>
+          <Text style={{ color: C.muted, textAlign: "center", marginTop: SPACE.sm, lineHeight: 22 }}>{FANSTAGE_TAGLINE}</Text>
+          <TouchableOpacity onPress={onExploreBattles} style={{ marginTop: SPACE.lg, backgroundColor: C.accent, borderRadius: 14, paddingHorizontal: SPACE.lg, paddingVertical: 12 }}>
+            <Text style={{ color: C.ink, fontWeight: "900" }}>Back an artist</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        unlocked.map((t) => (
-          <TouchableOpacity key={t.id} onPress={() => onOpenArtistFromTicket(t)} activeOpacity={0.9} style={{ backgroundColor: C.card, borderRadius: 28, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: "#22c55e44" }}>
-            <Text style={{ color: C.accent, fontWeight: "800" }}>Won the slot</Text>
-            <Text style={{ color: C.text, fontSize: 22, fontWeight: "900", marginTop: SPACE.xs }}>{t.artist}</Text>
-            <Text style={{ color: C.muted }}>{t.venue}</Text>
-            <Text style={{ color: C.accentSoft, marginTop: SPACE.md, fontWeight: "800" }}>View artist →</Text>
-          </TouchableOpacity>
-        ))
-      )}
-      <SectionLabel>ACTIVE BATTLES</SectionLabel>
-      {pending.length === 0 ? (
-        <View style={{ marginBottom: SPACE.lg }}>
-          <Text style={{ color: C.dim, lineHeight: 22 }}>No active picks. Back an artist in a venue battle.</Text>
-          <TouchableOpacity onPress={onExploreBattles} style={{ marginTop: SPACE.md, alignSelf: "flex-start" }}>
-            <Text style={{ color: C.accentSoft, fontWeight: "800" }}>Find a battle →</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        pending.map((p) => (
-          <TouchableOpacity key={p.id} onPress={() => onOpenArtistFromPick(p)} activeOpacity={0.9} style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
-            <Text style={{ color: C.gold, fontWeight: "800" }}>Your pick · {p.rank}</Text>
-            <Text style={{ color: C.text, fontSize: 18, fontWeight: "900", marginTop: SPACE.xs }}>{p.artist}</Text>
-            <Text style={{ color: C.muted }}>{p.venue}</Text>
-            <Text style={{ color: C.rival, marginTop: SPACE.sm, fontWeight: "700" }}>{p.countdown} left</Text>
-            <Text style={{ color: C.accentSoft, marginTop: SPACE.md, fontWeight: "800" }}>View artist →</Text>
-          </TouchableOpacity>
-        ))
-      )}
+      ) : null}
+
+      {showLive && pending.length > 0 ? (
+        <>
+          <SectionLabel>LIVE · DEPOSIT HELD</SectionLabel>
+          <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 20, fontSize: 13 }}>Battle still running. Your {BACKING_PRICE} stays locked until the venue ends.</Text>
+          {pending.map((p) => {
+            const open = expandedId === p.id;
+            const ms = momentumStyle(p.momentum);
+            const leadLabel = p.supporterGap === 0 ? "You're leading" : `${p.supporterGap} backers behind #1`;
+            const progress = p.supporterGap === 0 ? 1 : Math.max(0.15, 1 - p.supporterGap / 40);
+            return (
+              <TouchableOpacity
+                key={p.id}
+                onPress={() => toggleExpand(p.id)}
+                activeOpacity={0.92}
+                style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.gold + "44" }}
+              >
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <TicketStatusPill label="IN PROGRESS" color={C.gold} bg="#422006" />
+                  <Text style={{ color: C.rival, fontWeight: "900", fontSize: 13 }}>{p.countdown}</Text>
+                </View>
+                <Text style={{ color: C.text, fontSize: 20, fontWeight: "900", marginTop: SPACE.sm }}>{p.artist}</Text>
+                <Text style={{ color: C.muted }}>{p.venue} · {p.rank}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", marginTop: SPACE.sm, flexWrap: "wrap" }}>
+                  <View style={{ backgroundColor: ms.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, marginRight: SPACE.sm }}>
+                    <Text style={{ color: ms.color, fontWeight: "800", fontSize: 11 }}>{p.momentum}</Text>
+                  </View>
+                  <Text style={{ color: C.dim, fontSize: 12, fontWeight: "600" }}>{leadLabel}</Text>
+                </View>
+                <View style={{ height: 6, backgroundColor: C.border, borderRadius: 999, marginTop: SPACE.sm, overflow: "hidden" }}>
+                  <View style={{ width: `${progress * 100}%`, height: "100%", backgroundColor: C.gold }} />
+                </View>
+                {open ? (
+                  <View style={{ marginTop: SPACE.md, paddingTop: SPACE.md, borderTopWidth: 1, borderTopColor: C.border }}>
+                    <Text style={{ color: C.muted, lineHeight: 20, marginBottom: SPACE.sm }}>If {p.artist} wins, your deposit becomes a ticket. If not, {BACKING_PRICE} refunds per venue.</Text>
+                    <TouchableOpacity onPress={() => onOpenArtistFromPick(p)} style={{ backgroundColor: ROLE.fan.bg, borderRadius: 12, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: ROLE.fan.border }}>
+                      <Text style={{ color: ROLE.fan.primary, fontWeight: "900" }}>Track battle →</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 12 }}>Tap to expand</Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </>
+      ) : null}
+
+      {showLive && pending.length === 0 && filter === "live" ? (
+        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>No live picks. Back an artist in an open venue battle.</Text>
+      ) : null}
+
+      {showTicket && unlocked.length > 0 ? (
+        <>
+          <SectionLabel>TICKET · DEPOSIT CONVERTED</SectionLabel>
+          <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 20, fontSize: 13 }}>Your pick won the venue. Show QR at the door.</Text>
+          {unlocked.map((t) => {
+            const open = expandedId === `ticket-${t.id}`;
+            return (
+              <TouchableOpacity
+                key={t.id}
+                onPress={() => toggleExpand(`ticket-${t.id}`)}
+                activeOpacity={0.92}
+                style={{ backgroundColor: C.card, borderRadius: 28, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 2, borderColor: C.accent }}
+              >
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <TicketStatusPill label="TICKET READY" color={C.accent} bg="#14532d" />
+                  <Text style={{ fontSize: 22 }}>🎫</Text>
+                </View>
+                <Text style={{ color: C.text, fontSize: 22, fontWeight: "900", marginTop: SPACE.sm }}>{t.artist}</Text>
+                <Text style={{ color: C.muted }}>{t.venue}</Text>
+                <Text style={{ color: C.accentSoft, marginTop: SPACE.xs, fontWeight: "700", fontSize: 12 }}>{t.date}</Text>
+                {open ? (
+                  <View style={{ marginTop: SPACE.md, paddingTop: SPACE.md, borderTopWidth: 1, borderTopColor: "#22c55e33" }}>
+                    <Text style={{ color: C.dim, fontSize: 12, marginBottom: SPACE.sm }}>Code · {t.code}</Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                      <TouchableOpacity
+                        onPress={() => onOpenTicketQr(t)}
+                        style={{ flex: 1, minWidth: 140, backgroundColor: C.accent, borderRadius: 12, paddingVertical: 12, alignItems: "center", marginRight: SPACE.xs, marginBottom: SPACE.xs }}
+                      >
+                        <Text style={{ color: C.ink, fontWeight: "900" }}>Show QR pass</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => onOpenArtistFromTicket(t)}
+                        style={{ flex: 1, minWidth: 140, backgroundColor: C.surface, borderRadius: 12, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: C.border, marginBottom: SPACE.xs }}
+                      >
+                        <Text style={{ color: C.accentSoft, fontWeight: "900" }}>View artist</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={{ color: C.accentSoft, marginTop: SPACE.md, fontWeight: "800" }}>Tap to open pass actions</Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </>
+      ) : null}
+
+      {showTicket && unlocked.length === 0 && filter === "ticket" ? (
+        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>No winner tickets yet. Back the artist who wins the slot.</Text>
+      ) : null}
+
+      {showRefund && refunded.length > 0 ? (
+        <>
+          <SectionLabel>REFUNDED · PER VENUE</SectionLabel>
+          <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 20, fontSize: 13 }}>Battle ended. Your pick didn't win — {BACKING_PRICE} returned for that venue only.</Text>
+          {refunded.map((r) => {
+            const open = expandedId === r.id;
+            return (
+              <TouchableOpacity
+                key={r.id}
+                onPress={() => toggleExpand(r.id)}
+                activeOpacity={0.92}
+                style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: "#64748b55" }}
+              >
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <TicketStatusPill label="REFUNDED" color="#94a3b8" bg="#1e293b" />
+                  <Text style={{ color: C.accent, fontWeight: "900", fontSize: 14 }}>{r.refundedAmount}</Text>
+                </View>
+                <Text style={{ color: C.text, fontSize: 18, fontWeight: "900", marginTop: SPACE.sm }}>{r.artist}</Text>
+                <Text style={{ color: C.muted }}>{r.venue}</Text>
+                <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 13 }}>Won by {r.winnerName}</Text>
+                {open ? (
+                  <View style={{ marginTop: SPACE.md, paddingTop: SPACE.md, borderTopWidth: 1, borderTopColor: C.border }}>
+                    <View style={{ backgroundColor: "#1e293b", borderRadius: 12, padding: SPACE.md, marginBottom: SPACE.sm }}>
+                      <Text style={{ color: "#94a3b8", fontWeight: "800", fontSize: 11 }}>REFUND RECEIPT</Text>
+                      <Text style={{ color: C.text, fontWeight: "900", marginTop: 4 }}>{r.refundedAmount} returned</Text>
+                      <Text style={{ color: C.dim, fontSize: 12, marginTop: 4 }}>Venue battle closed · pick did not win slot</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => onOpenArtistFromRefund(r)} style={{ paddingVertical: 10, alignItems: "center" }}>
+                      <Text style={{ color: C.muted, fontWeight: "800" }}>View final results →</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={onExploreBattles} style={{ marginTop: SPACE.xs, backgroundColor: C.card, borderRadius: 12, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: C.border }}>
+                      <Text style={{ color: ROLE.fan.primary, fontWeight: "900" }}>Pick another battle</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 12 }}>Tap for refund details</Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </>
+      ) : null}
+
+      {showRefund && refunded.length === 0 && filter === "refund" ? (
+        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>No refunds. You only get refunded when your pick loses a finished battle.</Text>
+      ) : null}
+
+      {total > 0 ? (
+        <TouchableOpacity onPress={onExploreBattles} style={{ marginTop: SPACE.sm, paddingVertical: SPACE.md, alignItems: "center" }}>
+          <Text style={{ color: C.accentSoft, fontWeight: "800" }}>Explore more venue battles →</Text>
+        </TouchableOpacity>
+      ) : null}
     </>
   );
 }
@@ -2113,7 +2256,7 @@ function InviteArtistFlow({
   if (done && venue && genreMatch) {
     return (
       <>
-        <ScreenHeader title="Invite sent" subtitle={`${profileLabel} · ${artistGenre} nominated for ${venue.venueName}.`} onBack={onBack} eyebrow="SCENE BUILDER" />
+        <ScreenHeader title="Invite sent" subtitle={`${profileLabel} nominated for ${venue.venueName} — fans make the stage happen.`} onBack={onBack} eyebrow="SCENE BUILDER" />
         <View style={{ backgroundColor: C.card, borderRadius: 28, padding: SPACE.xl, alignItems: "center", marginBottom: SPACE.lg }}>
           <Text style={{ fontSize: 48, marginBottom: SPACE.md }}>📣</Text>
           <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, textAlign: "center" }}>You put them on the radar</Text>
@@ -2135,7 +2278,7 @@ function InviteArtistFlow({
 
   return (
     <>
-      <ScreenHeader title="Invite an artist" subtitle="Pick their genre, then a matching venue slot." onBack={onBack} eyebrow="FAN ONBOARDING" />
+      <ScreenHeader title="Invite an artist" subtitle={`${FANSTAGE_TAGLINE} Match genre to venue slot.`} onBack={onBack} eyebrow="FAN ONBOARDING" />
       <SectionLabel>ARTIST GENRE</SectionLabel>
       <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: SPACE.md }}>
         {SLOT_GENRES.map((g) => (
@@ -2262,7 +2405,7 @@ function ApplyBattleFlow({
 
   return (
     <>
-      <ScreenHeader title="Apply to battle" subtitle="Artists compete within the venue's genre only." onBack={onBack} eyebrow="ARTIST ONBOARDING" />
+      <ScreenHeader title="Apply to battle" subtitle={`${FANSTAGE_TAGLINE} Compete within the venue's genre.`} onBack={onBack} eyebrow="ARTIST ONBOARDING" />
       <SectionLabel>OPEN GENRE SLOTS</SectionLabel>
       {openVenues.map((v) => (
         <TouchableOpacity key={v.id} onPress={() => setVenueId(v.id)} style={{ backgroundColor: venueId === v.id ? "#1f2f4a" : C.card, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.sm, borderWidth: 1, borderColor: venueId === v.id ? C.accent : C.border }}>
@@ -2354,7 +2497,7 @@ function ProfileScreen({
     <>
       <ScreenHeader
         title="Your profile"
-        subtitle={profileMode === "artist" ? "Artist identity · compete for venue slots" : "Fan identity · shape the Seoul live scene"}
+        subtitle={profileMode === "artist" ? "Compete for venue slots · fans make the stage happen" : FANSTAGE_TAGLINE}
         eyebrow={activeRole.label.toUpperCase()}
       />
 
@@ -2723,7 +2866,7 @@ function CuratorToolsScreen({
     <>
       <ScreenHeader
         title="Curator tools"
-        subtitle="Approve artist identities. Venue admins place approved acts into battles."
+        subtitle={`${FANSTAGE_TAGLINE} Curators verify artists before they enter battles.`}
         onBack={onBack}
         eyebrow="CURATOR"
       />
@@ -2821,7 +2964,7 @@ function VenueAdminScreen({
     <>
       <ScreenHeader
         title="Venue admin"
-        subtitle="Publish slots and place approved artists into genre-locked lineups."
+        subtitle={`${FANSTAGE_TAGLINE} Open slots and build genre-locked lineups.`}
         onBack={onBack}
         eyebrow={ROLE.venue.label.toUpperCase()}
       />
@@ -3178,18 +3321,18 @@ function BottomNav({ activeTab, onTabChange, visible }: { activeTab: Tab; onTabC
 }
 
 function AppContent() {
+  const walletSeed = useMemo(() => seedTicketWalletState(), []);
   const [activeTab, setActiveTab] = useState<Tab>("discover");
-  const [venues, setVenues] = useState<VenueCompetition[]>(() => INITIAL_VENUES.map((v) => ({ ...v, artists: v.artists.map((a) => ({ ...a })) })));
+  const [venues, setVenues] = useState<VenueCompetition[]>(() => walletSeed.venues);
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [selectedVenue, setSelectedVenue] = useState<VenueCompetition | null>(null);
   const [selectedArtist, setSelectedArtist] = useState<CompetingArtist | null>(null);
   const [backingStep, setBackingStep] = useState<BackingStep>("review");
-  const [search, setSearch] = useState("");
   const [district, setDistrict] = useState<DistrictFilter>("All");
   const [genreFilter, setGenreFilter] = useState<GenreFilter>("All");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
-  const [venueBackings, setVenueBackings] = useState<Record<string, string>>({});
-  const [wonTickets, setWonTickets] = useState<Ticket[]>([]);
+  const [venueBackings, setVenueBackings] = useState<Record<string, string>>(() => walletSeed.venueBackings);
+  const [wonTickets, setWonTickets] = useState<Ticket[]>(() => walletSeed.wonTickets);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [reputation, setReputation] = useState(185);
   const [fanInvites, setFanInvites] = useState<FanInvite[]>([]);
@@ -3299,6 +3442,7 @@ function AppContent() {
   };
 
   const activePicks = useMemo(() => buildActivePicks(venues, venueBackings), [venues, venueBackings]);
+  const refundedPicks = useMemo(() => buildRefundedPicks(venues, venueBackings), [venues, venueBackings]);
 
   const liveVenue = useMemo(() => findLiveVenue(venues, selectedVenue), [venues, selectedVenue]);
   const liveArtist = useMemo(() => findLiveArtist(liveVenue, selectedArtist), [liveVenue, selectedArtist]);
@@ -3320,19 +3464,12 @@ function AppContent() {
   }, [venues, venueBackings, wonTickets, showToast]);
 
   const catalogVenues = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return venues.filter((v) => {
       const matchDistrict = district === "All" || v.district === district;
       const matchGenre = genreFilter === "All" || v.slotGenre === genreFilter;
-      const matchSearch =
-        !q ||
-        v.venueName.toLowerCase().includes(q) ||
-        v.district.toLowerCase().includes(q) ||
-        v.slotGenre.toLowerCase().includes(q) ||
-        v.artists.some((a) => a.name.toLowerCase().includes(q) || a.genre.toLowerCase().includes(q));
-      return matchDistrict && matchGenre && matchSearch;
+      return matchDistrict && matchGenre;
     });
-  }, [search, district, genreFilter, venues]);
+  }, [district, genreFilter, venues]);
 
   const filteredVenues = useMemo(() => {
     if (statusFilter === "All") return catalogVenues;
@@ -3385,6 +3522,21 @@ function AppContent() {
   const openArtistFromPick = (pick: PendingPick) => {
     const ctx = resolveArtist(venues, { venueId: pick.venueId, artistId: pick.artistId, artistName: pick.artist, venueName: pick.venue });
     if (ctx) openArtist(ctx.venue, ctx.artist, "tickets");
+  };
+
+  const openArtistFromRefund = (refund: RefundedPick) => {
+    const ctx = resolveArtist(venues, {
+      venueId: refund.venueId,
+      artistId: refund.artistId,
+      artistName: refund.artist,
+      venueName: refund.venue,
+    });
+    if (ctx) openArtist(ctx.venue, ctx.artist, "tickets");
+  };
+
+  const openTicketQr = (ticket: Ticket) => {
+    setSelectedTicket(ticket);
+    setOverlay("ticketQr");
   };
 
   const closeArtistDetail = () => {
@@ -3626,8 +3778,11 @@ function AppContent() {
           <TicketsScreen
             unlocked={wonTickets}
             pending={activePicks}
+            refunded={refundedPicks}
             onOpenArtistFromTicket={openArtistFromTicket}
             onOpenArtistFromPick={openArtistFromPick}
+            onOpenArtistFromRefund={openArtistFromRefund}
+            onOpenTicketQr={openTicketQr}
             onExploreBattles={() => setActiveTab("discover")}
           />
         );
@@ -3658,25 +3813,17 @@ function AppContent() {
       default:
         return (
           <VenueFeedScreen
-            fanHandle={fanHandle}
-            reputation={reputation}
-            inviteCount={fanInvites.length}
-            search={search}
-            onSearchChange={setSearch}
             district={district}
             onDistrictChange={setDistrict}
             genreFilter={genreFilter}
             onGenreFilterChange={setGenreFilter}
             statusFilter={statusFilter}
             onStatusFilterChange={setStatusFilter}
-            allVenues={catalogVenues}
             venues={filteredVenues}
             venueBackings={venueBackings}
             onOpenVenue={openVenue}
             onOpenArtist={(v, a) => openArtist(v, a, "discover")}
             onBackArtist={tryBackArtist}
-            onInvite={() => openInvite()}
-            onApply={() => openApply()}
           />
         );
     }
@@ -3688,7 +3835,7 @@ function AppContent() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
         {renderTabContent()}
       </ScrollView>
       {overlayContent ? (
