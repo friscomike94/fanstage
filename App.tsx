@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   View,
   Text,
   TouchableOpacity,
   TextInput,
+  useWindowDimensions,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from "react-native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
 
 const HERO_BG_VIDEO = require("./assets/hero-bg.mp4");
@@ -85,7 +87,8 @@ type Overlay =
   | "backingFlow"
   | "backingConfirmation"
   | "ticketQr"
-  | "admin"
+  | "curatorTools"
+  | "venueAdmin"
   | "inviteArtist"
   | "applyBattle";
 type BackingStep = "review" | "confirmed";
@@ -296,6 +299,83 @@ type Ticket = {
 type FanInvite = { id: string; venueId: string; profileId: string; genre: SlotGenre; note: string };
 type ArtistApplication = { id: string; venueId: string; artistName: string; pitch: string };
 
+type ArtistRoleRequestStatus = "pending" | "approved" | "rejected";
+
+type ArtistRoleRequest = {
+  id: string;
+  handle: string;
+  stageName: string;
+  status: ArtistRoleRequestStatus;
+  submittedLabel: string;
+  source: "profile" | "battle";
+  slotGenre: SlotGenre;
+  note?: string;
+};
+
+type ApprovedArtist = {
+  id: string;
+  handle: string;
+  stageName: string;
+  slotGenre: SlotGenre;
+  genre: string;
+  tagline: string;
+  story: string;
+};
+
+const SEED_ARTIST_ROLE_REQUESTS: ArtistRoleRequest[] = [
+  {
+    id: "req-yuna",
+    handle: "yuna_mix",
+    stageName: "DJ Yuna Flux",
+    status: "pending",
+    submittedLabel: "18m ago",
+    source: "battle",
+    slotGenre: "Electronic",
+    note: "House · K-electronic · Modeci slot ready",
+  },
+  {
+    id: "req-han",
+    handle: "han_archive",
+    stageName: "Han River Jazz Collective",
+    status: "pending",
+    submittedLabel: "1h ago",
+    source: "profile",
+    slotGenre: "Jazz",
+    note: "Modern jazz · Club FF applications",
+  },
+  {
+    id: "req-kontra",
+    handle: "kontra_seoul",
+    stageName: "KONTRA",
+    status: "approved",
+    submittedLabel: "3d ago",
+    source: "battle",
+    slotGenre: "Hip-hop",
+    note: "K-rap · Velvet Hall winner path",
+  },
+];
+
+const SEED_APPROVED_ARTISTS: ApprovedArtist[] = [
+  {
+    id: "roster-kontra",
+    handle: "kontra_seoul",
+    stageName: "KONTRA",
+    slotGenre: "Hip-hop",
+    genre: "K-rap",
+    tagline: "Seongsu rap, live-band power",
+    story: "KONTRA is verified and cleared for hip-hop venue battles across Seoul.",
+  },
+  {
+    id: "roster-luna",
+    handle: "luna_archive",
+    stageName: "Luna Archive",
+    slotGenre: "Indie",
+    genre: "Dream pop",
+    tagline: "Tape-delay vocals, basement hymns",
+    story: "Luna Archive brings dream-pop tension to indie-locked rooms.",
+  },
+];
+
 const PROFILE_BADGES = [
   { label: "Founding Fan", detail: "Backed a winner before slot closed" },
   { label: "Tastemaker", detail: "Picked the leader in 2 active battles" },
@@ -456,6 +536,95 @@ function findLiveVenue(venues: VenueCompetition[], venue: VenueCompetition | nul
 function findLiveArtist(venue: VenueCompetition | null, artist: CompetingArtist | null) {
   if (!venue || !artist) return null;
   return venue.artists.find((a) => a.id === artist.id) ?? artist;
+}
+
+function genreLabelForSlot(slotGenre: SlotGenre) {
+  if (slotGenre === "Electronic") return "Electronic";
+  if (slotGenre === "Hip-hop") return "Hip-hop";
+  if (slotGenre === "Jazz") return "Jazz";
+  return "Indie";
+}
+
+function requestToApprovedArtist(req: ArtistRoleRequest): ApprovedArtist {
+  return {
+    id: `roster-${req.handle}`,
+    handle: req.handle,
+    stageName: req.stageName,
+    slotGenre: req.slotGenre,
+    genre: genreLabelForSlot(req.slotGenre),
+    tagline: req.note?.split("·")[0]?.trim() ?? "Fanstage verified act",
+    story: `${req.stageName} is approved to enter ${req.slotGenre} venue battles.`,
+  };
+}
+
+function addArtistToVenueLineup(venue: VenueCompetition, artist: ApprovedArtist): VenueCompetition | null {
+  if (venue.winnerId) return null;
+  if (venue.slotGenre !== artist.slotGenre) return null;
+  if (venue.artists.some((a) => a.id === artist.id || a.name === artist.stageName)) return null;
+
+  const entrant: CompetingArtist = {
+    id: artist.id,
+    name: artist.stageName,
+    genre: artist.genre,
+    supporters: 24 + (artist.id.length % 40),
+    tagline: artist.tagline,
+    story: artist.story,
+    latestTrack: { title: "Battle entry", duration: "3:42" },
+  };
+
+  return {
+    ...venue,
+    artists: [...venue.artists, entrant],
+    slotsOpen: Math.max(0, venue.slotsOpen - 1),
+  };
+}
+
+function applicationToCompetingArtist(app: ArtistApplication, venue: VenueCompetition): CompetingArtist {
+  return {
+    id: `app-${app.id}`,
+    name: app.artistName,
+    genre: genreLabelForSlot(venue.slotGenre),
+    supporters: 18,
+    tagline: app.pitch.slice(0, 48),
+    story: app.pitch,
+    latestTrack: { title: "Application demo", duration: "3:20" },
+  };
+}
+
+function enqueueArtistRoleRequest(
+  prev: ArtistRoleRequest[],
+  payload: { handle: string; stageName: string; source: ArtistRoleRequest["source"]; slotGenre?: SlotGenre; note?: string }
+): ArtistRoleRequest[] {
+  const existing = prev.find((r) => r.handle === payload.handle);
+  if (existing?.status === "approved") return prev;
+  if (existing) {
+    return prev.map((r) =>
+      r.handle === payload.handle
+        ? {
+            ...r,
+            stageName: payload.stageName,
+            status: "pending",
+            submittedLabel: "Just now",
+            source: payload.source,
+            slotGenre: payload.slotGenre ?? r.slotGenre,
+            note: payload.note ?? r.note,
+          }
+        : r
+    );
+  }
+  return [
+    {
+      id: `req-${Date.now()}`,
+      handle: payload.handle,
+      stageName: payload.stageName,
+      status: "pending",
+      submittedLabel: "Just now",
+      source: payload.source,
+      slotGenre: payload.slotGenre ?? "Indie",
+      note: payload.note,
+    },
+    ...prev,
+  ];
 }
 
 function resolveArtist(
@@ -723,7 +892,56 @@ function LiveBadgeStatic() {
   );
 }
 
-function LandingHero() {
+const HERO_HEIGHT = 300;
+const HERO_SLIDES = ["home", "branding", "rules"] as const;
+const HERO_SLIDE_LABELS = ["Start", "Brand", "Rules"];
+
+function HeroPagerDots({ count, active }: { count: number; active: number }) {
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: SPACE.sm }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <View
+          key={i}
+          style={{
+            width: i === active ? 18 : 7,
+            height: 7,
+            borderRadius: 999,
+            marginHorizontal: 4,
+            backgroundColor: i === active ? ROLE.fan.primary : C.border,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
+function HeroSlideShell({
+  children,
+  accent,
+}: {
+  children: React.ReactNode;
+  accent?: string;
+}) {
+  return (
+    <View style={{ backgroundColor: "#070d18", height: HERO_HEIGHT, overflow: "hidden" }}>
+      <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 100, backgroundColor: accent ?? "#0f172a", opacity: 0.4 }} />
+      <View
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: "12%",
+          right: "12%",
+          height: 1,
+          backgroundColor: accent ?? ROLE.fan.primary,
+          opacity: 0.25,
+        }}
+      />
+      <View style={{ paddingHorizontal: SPACE.lg, paddingTop: 32, paddingBottom: 32 }}>{children}</View>
+    </View>
+  );
+}
+
+function HeroHomeSlide() {
   const player = useVideoPlayer(HERO_BG_VIDEO, (p) => {
     p.loop = true;
     p.muted = true;
@@ -731,43 +949,149 @@ function LandingHero() {
   });
 
   return (
-    <View style={{ borderRadius: 24, overflow: "hidden", marginBottom: SPACE.xl }}>
-      <View style={{ backgroundColor: "#070d18", minHeight: 268 }}>
-        <VideoView
-          player={player}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          nativeControls={false}
-          pointerEvents="none"
-        />
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(7, 13, 24, 0.58)" }]} />
-        <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 120, backgroundColor: "rgba(15, 23, 42, 0.35)" }} />
-        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 80, backgroundColor: "rgba(34, 197, 94, 0.06)" }} />
-        <View
-          style={{
-            position: "absolute",
-            bottom: 0,
-            left: "12%",
-            right: "12%",
-            height: 1,
-            backgroundColor: ROLE.fan.primary,
-            opacity: 0.25,
-          }}
-        />
-        <View style={{ paddingHorizontal: SPACE.lg, paddingTop: 40, paddingBottom: 40 }}>
+    <View style={{ backgroundColor: "#070d18", height: HERO_HEIGHT, overflow: "hidden" }}>
+      <VideoView
+        player={player}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        nativeControls={false}
+        pointerEvents="none"
+      />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(7, 13, 24, 0.58)" }]} />
+      <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 120, backgroundColor: "rgba(15, 23, 42, 0.35)" }} />
+      <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 80, backgroundColor: "rgba(34, 197, 94, 0.06)" }} />
+      <View
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: "12%",
+          right: "12%",
+          height: 1,
+          backgroundColor: ROLE.fan.primary,
+          opacity: 0.25,
+        }}
+      />
+      <View style={{ paddingHorizontal: SPACE.lg, paddingTop: 36, paddingBottom: 36 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
           <Text style={{ color: C.dim, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>FANSTAGE · SEOUL</Text>
-          <Text style={{ color: C.text, fontSize: 44, fontWeight: "900", lineHeight: 48, marginTop: 16, letterSpacing: -1.2 }}>
-            The room{"\n"}decides.
-          </Text>
-          <Text style={{ color: C.muted, fontSize: 15, lineHeight: 22, marginTop: 18, maxWidth: 320, fontWeight: "500" }}>
-            Genre-locked venue battles. One pick. Highest support wins the slot.
-          </Text>
-          <View style={{ flexDirection: "row", marginTop: 28, alignItems: "center" }}>
-            <LiveBadgeStatic />
-            <Text style={{ color: C.dim, marginLeft: 14, fontWeight: "600", fontSize: 12, letterSpacing: 0.3 }}>♪ Live culture · Seoul</Text>
-          </View>
+          <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 11 }}>Swipe →</Text>
+        </View>
+        <Text style={{ color: C.text, fontSize: 44, fontWeight: "900", lineHeight: 48, marginTop: 16, letterSpacing: -1.2 }}>
+          The room{"\n"}decides.
+        </Text>
+        <Text style={{ color: C.muted, fontSize: 15, lineHeight: 22, marginTop: 18, maxWidth: 320, fontWeight: "500" }}>
+          Genre-locked venue battles. One pick. Highest support wins the slot.
+        </Text>
+        <View style={{ flexDirection: "row", marginTop: 28, alignItems: "center" }}>
+          <LiveBadgeStatic />
+          <Text style={{ color: C.dim, marginLeft: 14, fontWeight: "600", fontSize: 12, letterSpacing: 0.3 }}>♪ Live culture · Seoul</Text>
         </View>
       </View>
+    </View>
+  );
+}
+
+function HeroBrandingSlide() {
+  return (
+    <HeroSlideShell accent="#3b0764">
+      <Text style={{ color: C.rival, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>BRANDING</Text>
+      <Text style={{ color: C.text, fontSize: 32, fontWeight: "900", lineHeight: 36, marginTop: 10, letterSpacing: -0.8 }}>Fanstage</Text>
+      <Text style={{ color: ROLE.fan.soft, fontWeight: "800", fontSize: 14, marginTop: 6 }}>Seoul live culture, crowd-funded</Text>
+      <View style={{ marginTop: SPACE.md }}>
+        {[
+          { icon: "♪", title: "Venue-first", body: "Real rooms. Real slots." },
+          { icon: "⚔", title: "Genre-locked", body: "Indie · electronic · hip-hop · jazz" },
+          { icon: "◎", title: "Fan-powered", body: "Your backing picks the headline." },
+        ].map((item) => (
+          <View key={item.title} style={{ flexDirection: "row", marginBottom: SPACE.sm, alignItems: "center" }}>
+            <View
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 10,
+                backgroundColor: C.surface,
+                alignItems: "center",
+                justifyContent: "center",
+                marginRight: SPACE.sm,
+                borderWidth: 1,
+                borderColor: C.border,
+              }}
+            >
+              <Text style={{ color: C.accentSoft, fontWeight: "900", fontSize: 12 }}>{item.icon}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: C.text, fontWeight: "900", fontSize: 13 }}>{item.title}</Text>
+              <Text style={{ color: C.muted, fontSize: 12 }}>{item.body}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+    </HeroSlideShell>
+  );
+}
+
+function HeroRulesSlide() {
+  return (
+    <HeroSlideShell accent="#422006">
+      <Text style={{ color: C.gold, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>BATTLE RULES</Text>
+      <Text style={{ color: C.text, fontSize: 28, fontWeight: "900", lineHeight: 32, marginTop: 10, letterSpacing: -0.6 }}>
+        How it works
+      </Text>
+      <Text style={{ color: C.muted, fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 10 }}>
+        One fan, one pick per venue.
+      </Text>
+      {[
+        `One pick per venue · ${BACKING_PRICE} deposit`,
+        "Genre must match the venue slot",
+        "Highest support wins · backers get tickets",
+        "Refund if your pick doesn't win",
+      ].map((rule) => (
+        <View key={rule} style={{ flexDirection: "row", marginBottom: 5, alignItems: "flex-start" }}>
+          <Text style={{ color: ROLE.fan.primary, fontWeight: "900", marginRight: 8, fontSize: 12, lineHeight: 16 }}>·</Text>
+          <Text style={{ color: "#cbd5e1", flex: 1, lineHeight: 16, fontSize: 12, fontWeight: "600" }}>{rule}</Text>
+        </View>
+      ))}
+      <Text style={{ color: C.rival, fontWeight: "700", fontSize: 11, marginTop: 10 }}>Swipe ← · back a pick below</Text>
+    </HeroSlideShell>
+  );
+}
+
+function LandingHero() {
+  const { width: screenWidth } = useWindowDimensions();
+  const pageWidth = screenWidth - SPACE.md * 2;
+  const [activePage, setActivePage] = useState(0);
+
+  const onScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const page = Math.round(e.nativeEvent.contentOffset.x / pageWidth);
+    setActivePage(page);
+  };
+
+  return (
+    <View style={{ marginBottom: SPACE.xl }}>
+      <View style={{ borderRadius: 24, overflow: "hidden" }}>
+        <ScrollView
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={onScrollEnd}
+          scrollEventThrottle={16}
+          decelerationRate="fast"
+        >
+          <View style={{ width: pageWidth, height: HERO_HEIGHT }}>
+            <HeroHomeSlide />
+          </View>
+          <View style={{ width: pageWidth, height: HERO_HEIGHT }}>
+            <HeroBrandingSlide />
+          </View>
+          <View style={{ width: pageWidth, height: HERO_HEIGHT }}>
+            <HeroRulesSlide />
+          </View>
+        </ScrollView>
+      </View>
+      <HeroPagerDots count={HERO_SLIDES.length} active={activePage} />
+      <Text style={{ color: C.dim, textAlign: "center", marginTop: SPACE.xs, fontSize: 11, fontWeight: "700" }}>
+        {HERO_SLIDE_LABELS[activePage]} · swipe for {activePage < HERO_SLIDES.length - 1 ? HERO_SLIDE_LABELS[activePage + 1] : HERO_SLIDE_LABELS[0]}
+      </Text>
     </View>
   );
 }
@@ -1902,7 +2226,7 @@ function ApplyBattleFlow({
   preselectedVenue: VenueCompetition | null;
   onBack: () => void;
   onSubmit: (app: ArtistApplication) => void;
-  onArtistRolePending: (stageName: string) => void;
+  onArtistRolePending: (stageName: string, slotGenre: SlotGenre) => void;
   onViewVenue: (venueId: string) => void;
 }) {
   const openVenues = venues.filter((v) => !v.winnerId && v.slotsOpen > 0);
@@ -1965,7 +2289,7 @@ function ApplyBattleFlow({
         onPress={() => {
           if (!venue || !artistName.trim()) return;
           const name = artistName.trim();
-          onArtistRolePending(name);
+          onArtistRolePending(name, venue.slotGenre);
           onSubmit({ id: `app-${Date.now()}`, venueId: venue.id, artistName: name, pitch: pitch.trim() || `${name} — ${venue.slotGenre} ready` });
           setDone(true);
         }}
@@ -1988,7 +2312,8 @@ function ProfileScreen({
   artistRoleStatus,
   artistStageName,
   onApplyForArtist,
-  onOpenAdmin,
+  onOpenVenueAdmin,
+  onOpenCuratorTools,
   isCurator,
 }: {
   handle: string;
@@ -2001,7 +2326,8 @@ function ProfileScreen({
   artistRoleStatus: ArtistApprovalStatus;
   artistStageName: string;
   onApplyForArtist: () => void;
-  onOpenAdmin: () => void;
+  onOpenVenueAdmin: () => void;
+  onOpenCuratorTools: () => void;
   isCurator: boolean;
 }) {
   const level = getFanLevel(reputation);
@@ -2147,94 +2473,655 @@ function ProfileScreen({
         </View>
       ))}
 
-      <TouchableOpacity onPress={onOpenAdmin} style={{ marginTop: SPACE.md, backgroundColor: ROLE.venue.bg, borderRadius: 20, padding: SPACE.md, borderWidth: 1, borderColor: ROLE.venue.border, marginBottom: SPACE.sm }}>
-        <Text style={{ color: ROLE.venue.primary, fontWeight: "800", textAlign: "center" }}>Venue admin · Open new slot</Text>
-      </TouchableOpacity>
       {isCurator ? (
-        <TouchableOpacity onPress={onOpenAdmin} style={{ backgroundColor: ROLE.curator.bg, borderRadius: 20, padding: SPACE.md, borderWidth: 1, borderColor: ROLE.curator.border }}>
-          <Text style={{ color: ROLE.curator.primary, fontWeight: "800", textAlign: "center" }}>Curator tools · Review artists</Text>
-        </TouchableOpacity>
+        <>
+          <TouchableOpacity onPress={onOpenVenueAdmin} style={{ marginTop: SPACE.md, backgroundColor: ROLE.venue.bg, borderRadius: 20, padding: SPACE.md, borderWidth: 1, borderColor: ROLE.venue.border, marginBottom: SPACE.sm }}>
+            <Text style={{ color: ROLE.venue.primary, fontWeight: "800", textAlign: "center" }}>Venue admin · Lineups & slots</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onOpenCuratorTools} style={{ backgroundColor: ROLE.curator.bg, borderRadius: 20, padding: SPACE.md, borderWidth: 1, borderColor: ROLE.curator.border }}>
+            <Text style={{ color: ROLE.curator.primary, fontWeight: "800", textAlign: "center" }}>Curator tools · Approve artists</Text>
+          </TouchableOpacity>
+        </>
       ) : null}
     </>
   );
 }
 
-function AdminScreen({
+type ArtistApprovalFilter = "pending" | "approved" | "rejected" | "all";
+
+function artistRequestStatusColor(status: ArtistRoleRequestStatus) {
+  if (status === "approved") return ROLE.artist.primary;
+  if (status === "rejected") return C.dim;
+  return ROLE.venue.primary;
+}
+
+function ArtistApprovalQueue({
+  requests,
+  onApprove,
+  onReject,
+}: {
+  requests: ArtistRoleRequest[];
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+}) {
+  const [filter, setFilter] = useState<ArtistApprovalFilter>("pending");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  const counts = useMemo(
+    () => ({
+      pending: requests.filter((r) => r.status === "pending").length,
+      approved: requests.filter((r) => r.status === "approved").length,
+      rejected: requests.filter((r) => r.status === "rejected").length,
+    }),
+    [requests]
+  );
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return requests.filter((r) => {
+      const matchFilter = filter === "all" || r.status === filter;
+      const matchQuery =
+        !q || r.handle.toLowerCase().includes(q) || r.stageName.toLowerCase().includes(q);
+      return matchFilter && matchQuery;
+    });
+  }, [requests, filter, query]);
+
+  const selected = filtered.find((r) => r.id === selectedId) ?? requests.find((r) => r.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (filtered.length === 0) {
+      setSelectedId(null);
+      return;
+    }
+    if (!selectedId || !filtered.some((r) => r.id === selectedId)) {
+      setSelectedId(filtered[0].id);
+    }
+  }, [filtered, selectedId]);
+
+  const filters: { id: ArtistApprovalFilter; label: string; count?: number }[] = [
+    { id: "pending", label: "Pending", count: counts.pending },
+    { id: "approved", label: "Approved", count: counts.approved },
+    { id: "rejected", label: "Rejected", count: counts.rejected },
+    { id: "all", label: "All" },
+  ];
+
+  return (
+    <View style={{ backgroundColor: ROLE.curator.bg, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.lg, borderWidth: 1, borderColor: ROLE.curator.border }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: SPACE.md }}>
+        <View>
+          <Text style={{ color: ROLE.curator.soft, fontSize: 11, fontWeight: "700" }}>ARTIST APPROVALS</Text>
+          <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, marginTop: 4 }}>{counts.pending} in queue</Text>
+        </View>
+        <View style={{ backgroundColor: counts.pending > 0 ? ROLE.venue.bg : C.surface, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: counts.pending > 0 ? ROLE.venue.border : C.border }}>
+          <Text style={{ color: counts.pending > 0 ? ROLE.venue.primary : C.dim, fontWeight: "900", fontSize: 11 }}>
+            {counts.pending > 0 ? "Needs review" : "Clear"}
+          </Text>
+        </View>
+      </View>
+
+      <View style={{ backgroundColor: C.surface, borderRadius: 14, paddingHorizontal: SPACE.md, paddingVertical: 12, marginBottom: SPACE.sm, borderWidth: 1, borderColor: C.border }}>
+        <TextInput
+          placeholder="Search handle or stage name…"
+          placeholderTextColor={C.dim}
+          value={query}
+          onChangeText={setQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={{ color: C.text, fontWeight: "600", fontSize: 14 }}
+        />
+      </View>
+
+      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: SPACE.md }}>
+        {filters.map((f) => (
+          <FilterChip
+            key={f.id}
+            label={f.count !== undefined ? `${f.label} · ${f.count}` : f.label}
+            active={filter === f.id}
+            accent={f.id === "pending" ? ROLE.venue.primary : f.id === "approved" ? ROLE.artist.primary : ROLE.curator.primary}
+            onPress={() => setFilter(f.id)}
+          />
+        ))}
+      </View>
+
+      {filtered.length === 0 ? (
+        <View style={{ backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, alignItems: "center" }}>
+          <Text style={{ color: C.muted, textAlign: "center", lineHeight: 22 }}>
+            {filter === "pending" ? "No pending artist applications." : `No ${filter === "all" ? "" : filter + " "}requests match.`}
+          </Text>
+        </View>
+      ) : (
+        filtered.map((req) => {
+          const on = selectedId === req.id;
+          return (
+            <TouchableOpacity
+              key={req.id}
+              onPress={() => setSelectedId(req.id)}
+              activeOpacity={0.9}
+              style={{
+                backgroundColor: on ? C.card : C.surface,
+                borderRadius: 16,
+                padding: SPACE.md,
+                marginBottom: SPACE.sm,
+                borderWidth: 1,
+                borderColor: on ? ROLE.curator.border : C.border,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: C.border,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: SPACE.sm,
+                  }}
+                >
+                  <Text style={{ color: C.muted, fontWeight: "900", fontSize: 12 }}>
+                    {req.stageName.slice(0, 2).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: C.text, fontWeight: "900", fontSize: 15 }}>{req.stageName}</Text>
+                  <Text style={{ color: C.dim, marginTop: 2, fontSize: 12 }}>@{req.handle}</Text>
+                </View>
+                <View style={{ alignItems: "flex-end" }}>
+                  <View
+                    style={{
+                      backgroundColor:
+                        req.status === "approved" ? ROLE.artist.bg : req.status === "rejected" ? C.card : ROLE.venue.bg,
+                      borderRadius: 999,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderWidth: 1,
+                      borderColor:
+                        req.status === "approved" ? ROLE.artist.border : req.status === "rejected" ? C.border : ROLE.venue.border,
+                    }}
+                  >
+                    <Text style={{ color: artistRequestStatusColor(req.status), fontWeight: "900", fontSize: 10 }}>
+                      {req.status.toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text style={{ color: C.dim, fontSize: 10, marginTop: 4, fontWeight: "600" }}>{req.submittedLabel}</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          );
+        })
+      )}
+
+      {selected ? (
+        <View style={{ backgroundColor: C.card, borderRadius: 18, padding: SPACE.md, marginTop: SPACE.xs, borderWidth: 1, borderColor: ROLE.curator.border }}>
+          <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>REVIEWING</Text>
+          <Text style={{ color: C.text, fontWeight: "900", fontSize: 18, marginTop: 4 }}>{selected.stageName}</Text>
+          <Text style={{ color: C.muted, marginTop: 2 }}>@{selected.handle} · via {selected.source === "profile" ? "Profile apply" : "Battle apply"}</Text>
+          {selected.note ? (
+            <Text style={{ color: "#cbd5e1", marginTop: SPACE.sm, lineHeight: 22, fontSize: 14 }}>{selected.note}</Text>
+          ) : null}
+          {selected.status === "pending" ? (
+            <View style={{ flexDirection: "row", marginTop: SPACE.md }}>
+              <TouchableOpacity
+                onPress={() => onReject(selected.id)}
+                style={{
+                  flex: 1,
+                  backgroundColor: C.surface,
+                  borderRadius: 14,
+                  paddingVertical: 14,
+                  alignItems: "center",
+                  marginRight: SPACE.xs,
+                  borderWidth: 1,
+                  borderColor: C.border,
+                }}
+              >
+                <Text style={{ color: C.muted, fontWeight: "900" }}>Deny</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => onApprove(selected.id)}
+                style={{
+                  flex: 1,
+                  backgroundColor: ROLE.artist.bg,
+                  borderRadius: 14,
+                  paddingVertical: 14,
+                  alignItems: "center",
+                  marginLeft: SPACE.xs,
+                  borderWidth: 1,
+                  borderColor: ROLE.artist.border,
+                }}
+              >
+                <Text style={{ color: ROLE.artist.primary, fontWeight: "900" }}>Approve</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={{ color: artistRequestStatusColor(selected.status), fontWeight: "800", marginTop: SPACE.md }}>
+              {selected.status === "approved" ? "Artist mode unlocked for this user." : "Application denied."}
+            </Text>
+          )}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function CuratorToolsScreen({
   onBack,
-  onPublish,
-  artistRoleStatus,
-  pendingHandle,
-  onApproveArtist,
+  artistRoleRequests,
+  approvedArtists,
+  onApproveArtistRequest,
+  onRejectArtistRequest,
 }: {
   onBack: () => void;
-  onPublish: (draft: { venueName: string; capacity: number; slotGenre: SlotGenre }) => void;
-  artistRoleStatus: ArtistApprovalStatus;
-  pendingHandle: string;
-  onApproveArtist: () => void;
+  artistRoleRequests: ArtistRoleRequest[];
+  approvedArtists: ApprovedArtist[];
+  onApproveArtistRequest: (id: string) => void;
+  onRejectArtistRequest: (id: string) => void;
 }) {
-  const [venueName, setVenueName] = useState("");
-  const [capacity, setCapacity] = useState("300");
-  const [slotGenre, setSlotGenre] = useState<SlotGenre>("Indie");
+  const approvedCount = artistRoleRequests.filter((r) => r.status === "approved").length;
 
   return (
     <>
-      <ScreenHeader title="Curator & venue tools" subtitle="Manage slots and approve artist identities." onBack={onBack} eyebrow="CURATOR" />
+      <ScreenHeader
+        title="Curator tools"
+        subtitle="Approve artist identities. Venue admins place approved acts into battles."
+        onBack={onBack}
+        eyebrow="CURATOR"
+      />
+      <View style={{ backgroundColor: C.surface, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
+        <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>ROSTER READY FOR VENUES</Text>
+        <Text style={{ color: C.text, fontWeight: "900", fontSize: 22, marginTop: 4 }}>{approvedArtists.length} verified artists</Text>
+        <Text style={{ color: C.muted, marginTop: 4, lineHeight: 20 }}>{approvedCount} approvals logged · assign them in Venue admin</Text>
+      </View>
+      <ArtistApprovalQueue requests={artistRoleRequests} onApprove={onApproveArtistRequest} onReject={onRejectArtistRequest} />
+    </>
+  );
+}
 
-      <View style={{ backgroundColor: ROLE.curator.bg, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.lg, borderWidth: 1, borderColor: ROLE.curator.border }}>
-        <Text style={{ color: ROLE.curator.soft, fontSize: 11, fontWeight: "700" }}>ARTIST APPROVAL</Text>
-        <Text style={{ color: C.text, fontWeight: "900", fontSize: 17, marginTop: SPACE.xs }}>@{pendingHandle}</Text>
-        <Text style={{ color: artistStatusColor(artistRoleStatus), fontWeight: "800", marginTop: SPACE.xs }}>
-          Status: {artistStatusLabel(artistRoleStatus)}
-        </Text>
-        {artistRoleStatus === "pending" ? (
-          <TouchableOpacity
-            onPress={onApproveArtist}
-            style={{ marginTop: SPACE.md, backgroundColor: ROLE.artist.bg, borderRadius: 14, paddingVertical: 14, alignItems: "center", borderWidth: 1, borderColor: ROLE.artist.border }}
-          >
-            <Text style={{ color: ROLE.artist.primary, fontWeight: "900" }}>Approve as Artist</Text>
-          </TouchableOpacity>
-        ) : artistRoleStatus === "approved" ? (
-          <Text style={{ color: ROLE.artist.soft, marginTop: SPACE.sm }}>Artist role granted · user can switch modes</Text>
-        ) : (
-          <Text style={{ color: C.muted, marginTop: SPACE.sm }}>No pending artist application</Text>
-        )}
+type VenuePublishDraft = {
+  venueName: string;
+  capacity: number;
+  slotGenre: SlotGenre;
+  district: DistrictFilter;
+};
+
+function VenueAdminScreen({
+  onBack,
+  venues,
+  approvedArtists,
+  battleApplications,
+  onPublish,
+  onViewOnDiscover,
+  onAddArtistToVenue,
+  onRemoveArtistFromVenue,
+  onAcceptBattleApplication,
+}: {
+  onBack: () => void;
+  venues: VenueCompetition[];
+  approvedArtists: ApprovedArtist[];
+  battleApplications: ArtistApplication[];
+  onPublish: (draft: VenuePublishDraft) => string;
+  onViewOnDiscover: (venueId: string) => void;
+  onAddArtistToVenue: (venueId: string, artistId: string) => void;
+  onRemoveArtistFromVenue: (venueId: string, artistId: string) => void;
+  onAcceptBattleApplication: (appId: string) => void;
+}) {
+  const openVenues = venues.filter((v) => !v.winnerId);
+  const [mode, setMode] = useState<"lineups" | "publish">("lineups");
+  const [selectedVenueId, setSelectedVenueId] = useState(openVenues[0]?.id ?? "");
+  const [justPublishedId, setJustPublishedId] = useState<string | null>(null);
+  const [venueName, setVenueName] = useState("");
+  const [capacity, setCapacity] = useState("300");
+  const [slotGenre, setSlotGenre] = useState<SlotGenre>("Indie");
+  const [district, setDistrict] = useState<DistrictFilter>("Hongdae");
+  const [publishError, setPublishError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (openVenues.length === 0) {
+      if (selectedVenueId) setSelectedVenueId("");
+      return;
+    }
+    if (!openVenues.some((v) => v.id === selectedVenueId)) {
+      setSelectedVenueId(justPublishedId && openVenues.some((v) => v.id === justPublishedId) ? justPublishedId : openVenues[0].id);
+    }
+  }, [openVenues, selectedVenueId, justPublishedId]);
+
+  const selectedVenue = openVenues.find((v) => v.id === selectedVenueId) ?? openVenues[0];
+  const isJustPublished = justPublishedId !== null && selectedVenue?.id === justPublishedId;
+
+  const handlePublishSlot = () => {
+    const name = venueName.trim();
+    if (!name) {
+      setPublishError("Enter a venue name to publish.");
+      return;
+    }
+    setPublishError(null);
+    const newId = onPublish({
+      venueName: name,
+      capacity: parseInt(capacity, 10) || 300,
+      slotGenre,
+      district,
+    });
+    setJustPublishedId(newId);
+    setSelectedVenueId(newId);
+    setMode("lineups");
+    setVenueName("");
+    setCapacity("300");
+  };
+  const venueApps = selectedVenue ? battleApplications.filter((a) => a.venueId === selectedVenue.id) : [];
+
+  const rosterForVenue = selectedVenue
+    ? approvedArtists.filter(
+        (a) =>
+          a.slotGenre === selectedVenue.slotGenre &&
+          !selectedVenue.artists.some((v) => v.id === a.id || v.name === a.stageName)
+      )
+    : [];
+
+  return (
+    <>
+      <ScreenHeader
+        title="Venue admin"
+        subtitle="Publish slots and place approved artists into genre-locked lineups."
+        onBack={onBack}
+        eyebrow={ROLE.venue.label.toUpperCase()}
+      />
+
+      <View style={{ flexDirection: "row", backgroundColor: C.surface, borderRadius: 14, padding: 4, marginBottom: SPACE.lg }}>
+        {(["lineups", "publish"] as const).map((tab) => {
+          const on = mode === tab;
+          return (
+            <TouchableOpacity
+              key={tab}
+              onPress={() => setMode(tab)}
+              style={{
+                flex: 1,
+                backgroundColor: on ? ROLE.venue.bg : "transparent",
+                borderRadius: 10,
+                paddingVertical: 12,
+                alignItems: "center",
+                borderWidth: on ? 1 : 0,
+                borderColor: ROLE.venue.border,
+              }}
+            >
+              <Text style={{ color: on ? ROLE.venue.primary : C.dim, fontWeight: "900", fontSize: 13 }}>
+                {tab === "lineups" ? "Manage lineups" : "Publish slot"}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
-      <SectionLabel>OPEN VENUE SLOT · {ROLE.venue.label.toUpperCase()}</SectionLabel>
-      <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 22 }}>Publish a genre-specific gig slot for artists to battle over.</Text>
-      <SectionLabel>SLOT GENRE</SectionLabel>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: SPACE.md }}>
-        {(["Indie", "Electronic", "Hip-hop", "Jazz"] as SlotGenre[]).map((g) => (
-          <TouchableOpacity key={g} onPress={() => setSlotGenre(g)} style={{ backgroundColor: slotGenre === g ? ROLE.venue.primary : C.card, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, marginRight: SPACE.xs, marginBottom: SPACE.xs }}>
-            <Text style={{ color: slotGenre === g ? C.ink : C.muted, fontWeight: "800" }}>{g}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      {[
-        { label: "Venue name", value: venueName, set: setVenueName, ph: "e.g. Rolling Hall" },
-        { label: "Capacity", value: capacity, set: setCapacity, ph: "450" },
-      ].map((f) => (
-        <View key={f.label} style={{ marginBottom: SPACE.md }}>
-          <Text style={{ color: C.muted, fontWeight: "700", marginBottom: SPACE.xs }}>{f.label}</Text>
-          <View style={{ backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, borderWidth: 1, borderColor: C.border }}>
-            <TextInput placeholder={f.ph} placeholderTextColor={C.dim} value={f.value} onChangeText={f.set} style={{ color: C.text, fontWeight: "600" }} keyboardType={f.label === "Capacity" ? "number-pad" : "default"} />
+      {mode === "publish" ? (
+        <>
+          <SectionLabel>ADD OPEN SLOT</SectionLabel>
+          <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 22 }}>
+            Publish a new venue battle. It appears on Discover and opens here for lineup setup.
+          </Text>
+
+          <View style={{ flexDirection: "row", marginBottom: SPACE.lg, alignItems: "center" }}>
+            {(["publish", "lineups"] as const).map((step, i) => {
+              const labels = ["1 · Publish", "2 · Lineup"];
+              const active = step === "publish" || (step === "lineups" && openVenues.length > 0);
+              return (
+                <React.Fragment key={step}>
+                  {i > 0 ? <View style={{ flex: 1, height: 2, backgroundColor: C.border, marginHorizontal: SPACE.xs }} /> : null}
+                  <View style={{ alignItems: "center", minWidth: 72 }}>
+                    <View
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 14,
+                        backgroundColor: active ? ROLE.venue.primary : C.card,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderWidth: 1,
+                        borderColor: active ? ROLE.venue.border : C.border,
+                      }}
+                    >
+                      <Text style={{ color: active ? C.ink : C.dim, fontWeight: "900", fontSize: 12 }}>{i + 1}</Text>
+                    </View>
+                    <Text style={{ color: active ? ROLE.venue.primary : C.dim, fontSize: 10, fontWeight: "700", marginTop: 4 }}>{labels[i]}</Text>
+                  </View>
+                </React.Fragment>
+              );
+            })}
           </View>
-        </View>
-      ))}
-      <View style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.lg }}>
-        <GenrePill genre={slotGenre} large />
-        <Text style={{ color: C.muted, lineHeight: 22, marginTop: SPACE.sm }}>Only {slotGenre} artists can apply or be invited. Fans back one pick; highest support wins the booking.</Text>
-      </View>
-      <TouchableOpacity
-        onPress={() => {
-          const name = venueName.trim();
-          if (!name) return;
-          onPublish({ venueName: name, capacity: parseInt(capacity, 10) || 300, slotGenre });
-        }}
-        style={{ backgroundColor: ROLE.venue.primary, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}
-      >
-        <Text style={{ color: C.ink, fontWeight: "900" }}>Publish open slot</Text>
-      </TouchableOpacity>
+
+          <SectionLabel>DISTRICT</SectionLabel>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: SPACE.md }}>
+            {DISTRICT_CHIPS.map((d) => (
+              <TouchableOpacity
+                key={d}
+                onPress={() => setDistrict(d)}
+                style={{
+                  backgroundColor: district === d ? ROLE.venue.primary : C.card,
+                  borderRadius: 999,
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                  marginRight: SPACE.xs,
+                  marginBottom: SPACE.xs,
+                }}
+              >
+                <Text style={{ color: district === d ? C.ink : C.muted, fontWeight: "800" }}>{d}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <SectionLabel>SLOT GENRE</SectionLabel>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: SPACE.md }}>
+            {SLOT_GENRES.map((g) => (
+              <TouchableOpacity key={g} onPress={() => setSlotGenre(g)} style={{ backgroundColor: slotGenre === g ? ROLE.venue.primary : C.card, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, marginRight: SPACE.xs, marginBottom: SPACE.xs }}>
+                <Text style={{ color: slotGenre === g ? C.ink : C.muted, fontWeight: "800" }}>{g}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {[
+            { label: "Venue name", value: venueName, set: setVenueName, ph: "e.g. Rolling Hall" },
+            { label: "Capacity", value: capacity, set: setCapacity, ph: "450" },
+          ].map((f) => (
+            <View key={f.label} style={{ marginBottom: SPACE.md }}>
+              <Text style={{ color: C.muted, fontWeight: "700", marginBottom: SPACE.xs }}>{f.label}</Text>
+              <View style={{ backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, borderWidth: 1, borderColor: C.border }}>
+                <TextInput placeholder={f.ph} placeholderTextColor={C.dim} value={f.value} onChangeText={f.set} style={{ color: C.text, fontWeight: "600" }} keyboardType={f.label === "Capacity" ? "number-pad" : "default"} />
+              </View>
+            </View>
+          ))}
+
+          <View style={{ backgroundColor: C.surface, borderRadius: 20, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>PREVIEW</Text>
+            <Text style={{ color: C.text, fontWeight: "900", fontSize: 18, marginTop: 4 }}>{venueName.trim() || "New venue"}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: SPACE.sm, flexWrap: "wrap" }}>
+              <GenrePill genre={slotGenre} />
+              <Text style={{ color: C.muted, marginLeft: SPACE.sm, fontSize: 12 }}>
+                {district} · {parseInt(capacity, 10) || 300} cap · 3 lineup spots
+              </Text>
+            </View>
+          </View>
+
+          {publishError ? (
+            <Text style={{ color: "#f87171", marginBottom: SPACE.sm, fontWeight: "700" }}>{publishError}</Text>
+          ) : null}
+
+          <TouchableOpacity
+            onPress={handlePublishSlot}
+            style={{ backgroundColor: ROLE.venue.primary, borderRadius: 18, paddingVertical: 18, alignItems: "center", marginBottom: SPACE.sm }}
+          >
+            <Text style={{ color: C.ink, fontWeight: "900" }}>Add venue & open slot</Text>
+          </TouchableOpacity>
+          <Text style={{ color: C.dim, textAlign: "center", fontSize: 12, lineHeight: 18 }}>Next: Manage lineups to place approved artists into this battle.</Text>
+        </>
+      ) : (
+        <>
+          <SectionLabel>SELECT VENUE BATTLE</SectionLabel>
+          {openVenues.length === 0 ? (
+            <View style={{ backgroundColor: C.card, borderRadius: 20, padding: SPACE.lg, marginBottom: SPACE.lg, borderWidth: 1, borderColor: C.border, alignItems: "center" }}>
+              <Text style={{ color: C.text, fontWeight: "900", fontSize: 17, textAlign: "center" }}>No open venues yet</Text>
+              <Text style={{ color: C.muted, marginTop: SPACE.sm, textAlign: "center", lineHeight: 22 }}>Publish your first slot to start adding artists.</Text>
+              <TouchableOpacity
+                onPress={() => setMode("publish")}
+                style={{ marginTop: SPACE.md, backgroundColor: ROLE.venue.primary, borderRadius: 14, paddingHorizontal: SPACE.lg, paddingVertical: 14 }}
+              >
+                <Text style={{ color: C.ink, fontWeight: "900" }}>Publish open slot →</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            openVenues.map((v) => {
+              const isNew = v.id === justPublishedId;
+              return (
+                <TouchableOpacity
+                  key={v.id}
+                  onPress={() => {
+                    setSelectedVenueId(v.id);
+                    if (v.id !== justPublishedId) setJustPublishedId(null);
+                  }}
+                  style={{
+                    backgroundColor: selectedVenue?.id === v.id ? ROLE.venue.bg : C.card,
+                    borderRadius: 16,
+                    padding: SPACE.md,
+                    marginBottom: SPACE.sm,
+                    borderWidth: 1,
+                    borderColor: selectedVenue?.id === v.id ? ROLE.venue.border : isNew ? ROLE.venue.primary : C.border,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                    <Text style={{ color: C.text, fontWeight: "900" }}>{v.venueName}</Text>
+                    {isNew ? (
+                      <View style={{ marginLeft: SPACE.sm, backgroundColor: ROLE.venue.primary, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>
+                        <Text style={{ color: C.ink, fontSize: 10, fontWeight: "900" }}>NEW</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: SPACE.xs, flexWrap: "wrap" }}>
+                    <GenrePill genre={v.slotGenre} />
+                    <Text style={{ color: C.muted, marginLeft: SPACE.sm, fontSize: 12 }}>
+                      {v.district} · {v.artists.length} in lineup · {v.slotsOpen} spots open
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
+
+          {isJustPublished && selectedVenue ? (
+            <View style={{ backgroundColor: "#14532d", borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.accent }}>
+              <Text style={{ color: C.accent, fontWeight: "900" }}>✓ {selectedVenue.venueName} added</Text>
+              <Text style={{ color: C.muted, marginTop: 4, lineHeight: 20 }}>Live on Discover. Add approved {selectedVenue.slotGenre} artists below.</Text>
+              <View style={{ flexDirection: "row", marginTop: SPACE.sm, flexWrap: "wrap" }}>
+                <TouchableOpacity
+                  onPress={() => onViewOnDiscover(selectedVenue.id)}
+                  style={{ backgroundColor: C.accent, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, marginRight: SPACE.sm, marginBottom: SPACE.xs }}
+                >
+                  <Text style={{ color: C.ink, fontWeight: "900", fontSize: 12 }}>View on Discover</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setJustPublishedId(null)} style={{ paddingVertical: 8 }}>
+                  <Text style={{ color: C.dim, fontWeight: "700", fontSize: 12 }}>Dismiss</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+
+          {selectedVenue ? (
+            <>
+              <View style={{ backgroundColor: ROLE.venue.bg, borderRadius: 20, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: ROLE.venue.border }}>
+                <Text style={{ color: ROLE.venue.soft, fontSize: 11, fontWeight: "700" }}>LINEUP · {selectedVenue.slotGenre.toUpperCase()}</Text>
+                <Text style={{ color: C.text, fontWeight: "900", fontSize: 18, marginTop: 4 }}>{selectedVenue.venueName}</Text>
+                <Text style={{ color: C.muted, marginTop: 4 }}>{selectedVenue.artists.length} artists competing · {selectedVenue.slotsOpen} slots left</Text>
+              </View>
+
+              <SectionLabel>CURRENT LINEUP</SectionLabel>
+              {selectedVenue.artists.length === 0 ? (
+                <Text style={{ color: C.dim, marginBottom: SPACE.md }}>No artists yet. Add from roster or accept applications.</Text>
+              ) : (
+                selectedVenue.artists.map((a) => (
+                  <View
+                    key={a.id}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      backgroundColor: C.surface,
+                      borderRadius: 14,
+                      padding: SPACE.md,
+                      marginBottom: SPACE.sm,
+                      borderWidth: 1,
+                      borderColor: C.border,
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: C.text, fontWeight: "800" }}>{a.name}</Text>
+                      <Text style={{ color: C.muted, fontSize: 12 }}>{a.supporters} supporters · {a.genre}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => onRemoveArtistFromVenue(selectedVenue.id, a.id)} style={{ paddingHorizontal: 10, paddingVertical: 6 }}>
+                      <Text style={{ color: C.dim, fontWeight: "800", fontSize: 12 }}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+
+              <SectionLabel>ADD APPROVED ARTIST</SectionLabel>
+              {rosterForVenue.length === 0 ? (
+                <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 20 }}>
+                  No matching verified {selectedVenue.slotGenre} artists available. Approve more in Curator tools.
+                </Text>
+              ) : (
+                rosterForVenue.map((a) => (
+                  <TouchableOpacity
+                    key={a.id}
+                    onPress={() => onAddArtistToVenue(selectedVenue.id, a.id)}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      backgroundColor: C.card,
+                      borderRadius: 14,
+                      padding: SPACE.md,
+                      marginBottom: SPACE.sm,
+                      borderWidth: 1,
+                      borderColor: ROLE.artist.border,
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: C.text, fontWeight: "800" }}>{a.stageName}</Text>
+                      <Text style={{ color: C.dim, fontSize: 12 }}>@{a.handle} · {a.genre}</Text>
+                    </View>
+                    <Text style={{ color: ROLE.artist.primary, fontWeight: "900", fontSize: 12 }}>Add to battle</Text>
+                  </TouchableOpacity>
+                ))
+              )}
+
+              {venueApps.length > 0 ? (
+                <>
+                  <SectionLabel>BATTLE APPLICATIONS</SectionLabel>
+                  {venueApps.map((app) => (
+                    <View
+                      key={app.id}
+                      style={{
+                        backgroundColor: C.surface,
+                        borderRadius: 14,
+                        padding: SPACE.md,
+                        marginBottom: SPACE.sm,
+                        borderWidth: 1,
+                        borderColor: C.border,
+                      }}
+                    >
+                      <Text style={{ color: C.text, fontWeight: "800" }}>{app.artistName}</Text>
+                      <Text style={{ color: C.muted, marginTop: 4, lineHeight: 20, fontSize: 13 }}>{app.pitch}</Text>
+                      <TouchableOpacity onPress={() => onAcceptBattleApplication(app.id)} style={{ marginTop: SPACE.sm, alignSelf: "flex-start" }}>
+                        <Text style={{ color: ROLE.venue.primary, fontWeight: "900" }}>Accept into lineup →</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </>
+              ) : null}
+
+              <TouchableOpacity
+                onPress={() => setMode("publish")}
+                style={{ marginTop: SPACE.lg, paddingVertical: SPACE.md, alignItems: "center", borderWidth: 1, borderColor: ROLE.venue.border, borderRadius: 14, borderStyle: "dashed" }}
+              >
+                <Text style={{ color: ROLE.venue.primary, fontWeight: "800" }}>+ Publish another open slot</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+        </>
+      )}
     </>
   );
 }
@@ -2310,6 +3197,8 @@ function AppContent() {
   const [profileMode, setProfileMode] = useState<ProfileMode>("fan");
   const [artistRoleStatus, setArtistRoleStatus] = useState<ArtistApprovalStatus>("not_applied");
   const [artistStageName, setArtistStageName] = useState("");
+  const [artistRoleRequests, setArtistRoleRequests] = useState<ArtistRoleRequest[]>(SEED_ARTIST_ROLE_REQUESTS);
+  const [approvedArtists, setApprovedArtists] = useState<ApprovedArtist[]>(SEED_APPROVED_ARTISTS);
   const [artistDetailReturn, setArtistDetailReturn] = useState<ArtistDetailReturn>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [flowEpoch, setFlowEpoch] = useState(0);
@@ -2318,6 +3207,96 @@ function AppContent() {
 
   const dismissToast = useCallback(() => setToast(null), []);
   const showToast = useCallback((msg: string) => setToast(msg), []);
+
+  const handleApproveArtistRequest = (id: string) => {
+    const req = artistRoleRequests.find((r) => r.id === id);
+    if (!req) return;
+    setArtistRoleRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "approved" as const } : r)));
+    const rosterEntry = requestToApprovedArtist(req);
+    setApprovedArtists((prev) => (prev.some((a) => a.handle === rosterEntry.handle) ? prev : [rosterEntry, ...prev]));
+    if (req.handle === fanHandle) {
+      setArtistRoleStatus("approved");
+      setArtistStageName(req.stageName);
+    }
+    showToast(`Approved ${req.stageName} · ready for venue lineups`);
+  };
+
+  const handleAddArtistToVenue = (venueId: string, artistId: string) => {
+    const roster = approvedArtists.find((a) => a.id === artistId);
+    if (!roster) return;
+    setVenues((prev) => {
+      const next = prev.map((v) => {
+        if (v.id !== venueId) return v;
+        return addArtistToVenueLineup(v, roster) ?? v;
+      });
+      const updated = next.find((v) => v.id === venueId);
+      if (updated && updated.artists.some((a) => a.id === roster.id)) {
+        showToast(`${roster.stageName} added to ${updated.venueName}`);
+      }
+      return next;
+    });
+  };
+
+  const handleRemoveArtistFromVenue = (venueId: string, artistId: string) => {
+    setVenues((prev) =>
+      prev.map((v) => {
+        if (v.id !== venueId || v.winnerId) return v;
+        if (!v.artists.some((a) => a.id === artistId)) return v;
+        return {
+          ...v,
+          artists: v.artists.filter((a) => a.id !== artistId),
+          slotsOpen: v.slotsOpen + 1,
+        };
+      })
+    );
+    showToast("Removed from lineup");
+  };
+
+  const handleAcceptBattleApplication = (appId: string) => {
+    const app = artistApplications.find((a) => a.id === appId);
+    if (!app) return;
+    const venue = venues.find((v) => v.id === app.venueId);
+    if (!venue || venue.winnerId) return;
+    const entrant = applicationToCompetingArtist(app, venue);
+    if (venue.artists.some((a) => a.name === entrant.name)) {
+      setArtistApplications((prev) => prev.filter((a) => a.id !== appId));
+      showToast(`${entrant.name} is already in this battle`);
+      return;
+    }
+    setVenues((prev) =>
+      prev.map((v) =>
+        v.id === venue.id
+          ? { ...v, artists: [...v.artists, entrant], slotsOpen: Math.max(0, v.slotsOpen - 1) }
+          : v
+      )
+    );
+    setArtistApplications((prev) => prev.filter((a) => a.id !== appId));
+    showToast(`${entrant.name} accepted into ${venue.venueName}`);
+  };
+
+  const handleRejectArtistRequest = (id: string) => {
+    const req = artistRoleRequests.find((r) => r.id === id);
+    if (!req) return;
+    setArtistRoleRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "rejected" as const } : r)));
+    if (req.handle === fanHandle) {
+      setArtistRoleStatus("not_applied");
+    }
+    showToast(`Denied @${req.handle}`);
+  };
+
+  const queueArtistRoleApplication = (
+    stageName: string,
+    source: ArtistRoleRequest["source"],
+    note?: string,
+    slotGenre?: SlotGenre
+  ) => {
+    if (artistRoleStatus === "approved") return;
+    setArtistRoleStatus("pending");
+    setArtistStageName(stageName);
+    setArtistRoleRequests((prev) =>
+      enqueueArtistRoleRequest(prev, { handle: fanHandle, stageName, source, note, slotGenre })
+    );
+  };
 
   const activePicks = useMemo(() => buildActivePicks(venues, venueBackings), [venues, venueBackings]);
 
@@ -2503,27 +3482,38 @@ function AppContent() {
             setReputation((r) => r + 10);
             showToast(`Application submitted for ${app.artistName}.`);
           }}
-          onArtistRolePending={(name) => {
-            if (artistRoleStatus === "not_applied") {
-              setArtistRoleStatus("pending");
-              setArtistStageName(name);
-            }
+          onArtistRolePending={(name, slotGenre) => {
+            queueArtistRoleApplication(name, "battle", `${name} — battle application`, slotGenre);
           }}
           onViewVenue={openVenueById}
         />
       );
     }
-    if (overlay === "admin") {
+    if (overlay === "curatorTools") {
       return (
-        <AdminScreen
+        <CuratorToolsScreen
           onBack={closeOverlay}
+          artistRoleRequests={artistRoleRequests}
+          approvedArtists={approvedArtists}
+          onApproveArtistRequest={handleApproveArtistRequest}
+          onRejectArtistRequest={handleRejectArtistRequest}
+        />
+      );
+    }
+    if (overlay === "venueAdmin") {
+      return (
+        <VenueAdminScreen
+          onBack={closeOverlay}
+          venues={venues}
+          approvedArtists={approvedArtists}
+          battleApplications={artistApplications}
           onPublish={(draft) => {
             const id = `venue-${Date.now()}`;
             const newVenue: VenueCompetition = {
               id,
               venueName: draft.venueName,
-              district: "Hongdae",
-              address: "New slot · Fanstage curator publish",
+              district: draft.district,
+              address: `${draft.district} · Fanstage open slot`,
               capacity: draft.capacity,
               slotLabel: "Opening weekend · 8PM",
               slotDate: "TBA",
@@ -2534,17 +3524,20 @@ function AppContent() {
               artists: [],
             };
             setVenues((prev) => [newVenue, ...prev]);
-            closeOverlay();
-            setActiveTab("discover");
-            showToast(`${draft.venueName} is live on Discover.`);
+            showToast(`${draft.venueName} added · ${draft.district} ${draft.slotGenre}`);
+            return id;
           }}
-          artistRoleStatus={artistRoleStatus}
-          pendingHandle={fanHandle}
-          onApproveArtist={() => {
-            setArtistRoleStatus("approved");
-            if (!artistStageName) setArtistStageName("Mike Seoul");
-            showToast("Artist role approved. Switch modes in Profile.");
+          onViewOnDiscover={(venueId) => {
+            const v = venues.find((x) => x.id === venueId);
+            if (v) {
+              setSelectedVenue(v);
+              closeOverlay();
+              setActiveTab("discover");
+            }
           }}
+          onAddArtistToVenue={handleAddArtistToVenue}
+          onRemoveArtistFromVenue={handleRemoveArtistFromVenue}
+          onAcceptBattleApplication={handleAcceptBattleApplication}
         />
       );
     }
@@ -2653,8 +3646,12 @@ function AppContent() {
             battleApplications={artistApplications.length}
             artistRoleStatus={artistRoleStatus}
             artistStageName={artistStageName}
-            onApplyForArtist={() => openApply()}
-            onOpenAdmin={() => setOverlay("admin")}
+            onApplyForArtist={() => {
+              queueArtistRoleApplication(artistStageName || "Mike Seoul", "profile", "Profile artist role application");
+              openApply();
+            }}
+            onOpenVenueAdmin={() => setOverlay("venueAdmin")}
+            onOpenCuratorTools={() => setOverlay("curatorTools")}
             isCurator={isCurator}
           />
         );
