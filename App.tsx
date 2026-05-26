@@ -652,7 +652,7 @@ const INITIAL_VENUES: VenueCompetition[] = [
     bookingCloseDate: "6월 18일 (수)",
     bookingCloseTime: "23:59",
     countdown: { days: 2, hours: 14, minutes: 32 },
-    minGoal: 200,
+    minGoal: 150,
     slotGenre: "Indie",
     slotsOpen: 2,
     artists: [
@@ -662,7 +662,8 @@ const INITIAL_VENUES: VenueCompetition[] = [
         genre: "인디 록",
         supporters: 94,
         tagline: "마포 감성, 다같이 부르는 후렴",
-        story: "새벽 식당을 노래로 그리는 미누. 2년째 롤링홀 무대를 준비해 왔다.",
+        story:
+          "새벽의 식당, 마지막 지하철, 오래 미룬 고백을 노래하는 인디 록 아티스트. 지금 서울 94명이 롤링홀 무대를 부르고 있다.",
         latestTrack: { title: "위성 기도", duration: "4:08" },
       },
       {
@@ -1229,11 +1230,24 @@ function getArtistStatusLabel(
   artist: CompetingArtist,
   userPickId?: string
 ): string {
-  if (venue.winnerId === artist.id) return "승자 · 확정";
-  if (userPickId === artist.id) return "내 선택 · 진행 중";
-  const sorted = sortedArtists(venue);
-  const rank = sorted.findIndex((a) => a.id === artist.id) + 1;
-  return `${rank}위 · ${momentumKo(getVenueMomentum(venue))}`;
+  if (venue.winnerId === artist.id) return "공연 확정";
+  if (userPickId === artist.id) return "예치 완료 · 함께 부르는 중";
+  const { probability } = campaignPledgeStats(artist.supporters, venue.minGoal);
+  return `성사 가능성 ${probability}%`;
+}
+
+function campaignPledgeStats(supporters: number, goal: number) {
+  const remaining = Math.max(0, goal - supporters);
+  const probability = Math.min(100, Math.round((supporters / Math.max(goal, 1)) * 100));
+  return { remaining, probability };
+}
+
+function artistCampaignEyebrow(artist: CompetingArtist) {
+  return `서울이 ${artist.name}를 부르는 중`;
+}
+
+function artistCampaignTitle(artist: CompetingArtist, venue: VenueCompetition) {
+  return `${artist.name} @ ${venue.venueName} 만들기`;
 }
 
 function venueBattleSummary(venue: VenueCompetition) {
@@ -2698,93 +2712,148 @@ function ArtistDetailScreen({
   onCancelPick?: () => void;
   onViewTicket?: () => void;
 }) {
-  const sorted = sortedArtists(venue);
-  const rank = sorted.findIndex((a) => a.id === artist.id) + 1;
   const isWinner = venue.winnerId === artist.id;
+  const goal = venue.minGoal;
+  const { remaining, probability } = campaignPledgeStats(artist.supporters, goal);
+  const pledgeProgress = Math.min(1, artist.supporters / Math.max(goal, 1));
+  const showDepositCta = !venue.winnerId && !isUserPick;
 
-  return (
+  const scrollBody = (
     <>
-      <ScreenHeader title={artist.name} subtitle={`${artist.genre} · ${venue.venueName}`} onBack={onBack} eyebrow={`${rank}위 · 배틀`} />
+      <ScreenHeader
+        title={artistCampaignTitle(artist, venue)}
+        subtitle={`${artist.genre} · ${venue.district} · ${venue.slotLabel}`}
+        onBack={onBack}
+        eyebrow={artistCampaignEyebrow(artist)}
+        titleSize={26}
+      />
 
       <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: SPACE.sm }}>
-          <View style={{ backgroundColor: isWinner ? ROLE.fan.bg : "#2d1f4e", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, marginRight: SPACE.sm, marginBottom: SPACE.xs, borderWidth: 1, borderColor: isWinner ? ROLE.fan.border : C.rival + "44" }}>
-            <Text style={{ color: isWinner ? ROLE.fan.primary : C.rival, fontWeight: "900", fontSize: 11 }}>{statusLabel}</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: SPACE.md }}>
+          <View
+            style={{
+              backgroundColor: isWinner ? ROLE.fan.bg : "#13231a",
+              borderRadius: 999,
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              marginRight: SPACE.sm,
+              marginBottom: SPACE.xs,
+              borderWidth: 1,
+              borderColor: isWinner ? ROLE.fan.border : ROLE.fan.border,
+            }}
+          >
+            <Text style={{ color: isWinner ? ROLE.fan.primary : ROLE.fan.soft, fontWeight: "900", fontSize: 11 }}>{statusLabel}</Text>
           </View>
           {isUserPick ? (
             <View style={{ backgroundColor: "#1e3a5f", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, marginBottom: SPACE.xs }}>
-              <Text style={{ color: "#7dd3fc", fontWeight: "900", fontSize: 11 }}>내 픽</Text>
+              <Text style={{ color: "#7dd3fc", fontWeight: "900", fontSize: 11 }}>내가 부르는 중</Text>
             </View>
           ) : null}
-          <GenrePill genre={venue.slotGenre} />
         </View>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: SPACE.sm }}>
-          <View>
-            <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>장르</Text>
-            <Text style={{ color: C.text, fontWeight: "900", fontSize: 16 }}>{artist.genre}</Text>
-          </View>
-          <View style={{ alignItems: "flex-end" }}>
-            <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>서포트</Text>
-            <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 22 }}>{artist.supporters}명</Text>
-          </View>
+
+        <Text style={{ color: C.text, fontWeight: "900", fontSize: 28, letterSpacing: -0.5 }}>{artist.supporters}명이 약속함</Text>
+        <Text style={{ color: C.muted, marginTop: SPACE.xs, fontSize: 15, fontWeight: "700" }}>
+          목표 {goal}명까지 {remaining}명
+        </Text>
+        <Text style={{ color: ROLE.fan.primary, marginTop: 4, fontSize: 15, fontWeight: "800" }}>성사 가능성 {probability}%</Text>
+
+        <View style={{ height: 8, borderRadius: 999, backgroundColor: C.border, marginTop: SPACE.md, overflow: "hidden" }}>
+          <View style={{ height: "100%", width: `${pledgeProgress * 100}%`, backgroundColor: ROLE.fan.primary, borderRadius: 999 }} />
         </View>
-        <View style={{ marginTop: SPACE.md }}>
-          <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>공연장</Text>
-          <Text style={{ color: C.text, fontWeight: "800", fontSize: 16 }}>{venue.venueName}</Text>
-          <Text style={{ color: C.muted, marginTop: 4 }}>{venue.district} · {venue.slotLabel}</Text>
-        </View>
+
+        <Text style={{ color: C.dim, marginTop: SPACE.md, fontSize: 12, fontWeight: "600", lineHeight: 18 }}>
+          아직 없는 공연입니다. 약속이 모이면 {venue.venueName} 무대가 열립니다.
+        </Text>
       </View>
 
       <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md }}>
         <SectionLabel>소개</SectionLabel>
-        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>{artist.story}</Text>
+        <Text style={{ color: "#cbd5e1", lineHeight: 26, fontSize: 15 }}>{artist.story}</Text>
       </View>
 
-      <View style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, flexDirection: "row", alignItems: "center" }}>
-        <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: C.border, alignItems: "center", justifyContent: "center", marginRight: SPACE.md }}>
-          <Text style={{ fontSize: 20 }}>▶</Text>
+      <View style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md }}>
+        <SectionLabel>왜 이 무대여야 하나</SectionLabel>
+        <View style={{ flexDirection: "row", alignItems: "center", marginTop: SPACE.sm }}>
+          <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: C.border, alignItems: "center", justifyContent: "center", marginRight: SPACE.md }}>
+            <Text style={{ fontSize: 20, color: ROLE.fan.primary }}>▶</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: C.text, fontWeight: "900", fontSize: 17 }}>
+              {artist.latestTrack.title} {artist.latestTrack.duration}
+            </Text>
+            <Text style={{ color: C.muted, marginTop: 6, lineHeight: 20 }}>
+              이 노래를 {venue.venueName}에서 듣고 싶은 사람들: {artist.supporters}명
+            </Text>
+          </View>
         </View>
-        <View>
-          <SectionLabel>최신 트랙</SectionLabel>
-          <Text style={{ color: C.text, fontWeight: "900", fontSize: 17 }}>{artist.latestTrack.title}</Text>
-          <Text style={{ color: C.muted }}>{artist.latestTrack.duration}</Text>
-        </View>
       </View>
 
-      <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.lg }}>
-        <SectionLabel>승리 시</SectionLabel>
-        <Text style={{ color: "#cbd5e1", lineHeight: 24 }}>· {venue.venueName}에서 {artist.name} 공연 확정</Text>
-        <Text style={{ color: "#cbd5e1", lineHeight: 24 }}>· {BACKING_PRICE} 예치금이 입장권으로 전환</Text>
-        <Text style={{ color: "#cbd5e1", lineHeight: 24 }}>· 다른 아티스트가 이기면 전액 환불</Text>
-        <Text style={{ color: "#cbd5e1", lineHeight: 24 }}>· 공연장당 1명만 서포트 · {genreKo(venue.slotGenre)}</Text>
+      <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md }}>
+        <SectionLabel>성사되면</SectionLabel>
+        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· {venue.venueName} {artist.name} 공연 확정</Text>
+        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· 예치금은 입장권으로 전환</Text>
+        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· 실패 시 전액 환불</Text>
+        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· 초기 서포터 이름 기록</Text>
       </View>
 
-      {!venue.winnerId && !isUserPick ? (
-        <TouchableOpacity onPress={onBackArtist} style={{ backgroundColor: C.accent, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}>
-          <Text style={{ color: C.ink, fontWeight: "900", fontSize: 17 }}>
-            {artist.name} 서포트 · {BACKING_PRICE}
-          </Text>
-        </TouchableOpacity>
-      ) : null}
       {!venue.winnerId && isUserPick ? (
         <Text style={{ color: ROLE.fan.soft, fontWeight: "700", fontSize: 14, textAlign: "center", marginBottom: SPACE.sm }}>
-          이 팀과 함께 {venue.venueName} 무대를 만들고 있어요
+          내가 누르면 이 공연이 가까워집니다 — 지금 {venue.venueName} 무대를 부르는 중이에요
         </Text>
       ) : null}
       {onViewTicket ? (
         <TouchableOpacity onPress={onViewTicket} style={{ marginTop: SPACE.sm, paddingVertical: SPACE.md, alignItems: "center" }}>
-          <Text style={{ color: C.accentSoft, fontWeight: "800" }}>View entry pass (QR) →</Text>
+          <Text style={{ color: C.accentSoft, fontWeight: "800" }}>입장권 QR 보기 →</Text>
         </TouchableOpacity>
       ) : null}
       {isUserPick && !venue.winnerId && onCancelPick ? (
-        <View style={{ alignItems: "center", marginTop: SPACE.lg, marginBottom: SPACE.xl, paddingTop: SPACE.md }}>
-          <Text style={{ color: C.dim, fontSize: 12, fontWeight: "600" }}>선택을 취소하고 싶나요?</Text>
+        <View style={{ alignItems: "center", marginTop: SPACE.md, marginBottom: SPACE.xl, paddingTop: SPACE.md }}>
+          <Text style={{ color: C.dim, fontSize: 12, fontWeight: "600" }}>예치를 취소하고 싶나요?</Text>
           <TouchableOpacity onPress={onCancelPick} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }} style={{ marginTop: 6 }}>
-            <Text style={{ color: C.dim, fontSize: 13, fontWeight: "600", textDecorationLine: "underline" }}>선택 취소</Text>
+            <Text style={{ color: C.dim, fontSize: 13, fontWeight: "600", textDecorationLine: "underline" }}>예치 취소</Text>
           </TouchableOpacity>
         </View>
       ) : null}
     </>
+  );
+
+  if (!showDepositCta) {
+    return (
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+        {scrollBody}
+      </ScrollView>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 160 }} showsVerticalScrollIndicator={false}>
+        {scrollBody}
+      </ScrollView>
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          paddingHorizontal: SPACE.md,
+          paddingTop: SPACE.md,
+          paddingBottom: SPACE.lg,
+          backgroundColor: C.bg,
+          borderTopWidth: 1,
+          borderTopColor: C.border,
+        }}
+      >
+        <TouchableOpacity onPress={onBackArtist} style={{ backgroundColor: C.accent, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}>
+          <Text style={{ color: C.ink, fontWeight: "900", fontSize: 17 }}>
+            {BACKING_PRICE} 예치하고 {artist.name} 부르기
+          </Text>
+        </TouchableOpacity>
+        <Text style={{ color: C.muted, textAlign: "center", marginTop: SPACE.sm, fontSize: 13, fontWeight: "600" }}>
+          성사되면 티켓으로 전환 · 실패하면 환불
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -4972,13 +5041,17 @@ function AppContent() {
       </ScrollView>
       {overlayContent ? (
         <View style={SCREEN_OVERLAY}>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 120 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {overlayContent}
-          </ScrollView>
+          {overlay === "artistDetail" ? (
+            overlayContent
+          ) : (
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 120 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {overlayContent}
+            </ScrollView>
+          )}
         </View>
       ) : null}
       <BottomNav activeTab={activeTab} onTabChange={handleTabChange} visible={!hideNav} />
