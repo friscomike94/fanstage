@@ -17,6 +17,20 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
+import { AdminRaceScreen } from "./onecore/AdminRaceScreen";
+import { OnecoreRaceCard } from "./onecore/OnecoreRaceCard";
+import { RaceProposalScreen } from "./onecore/RaceProposalScreen";
+import {
+  applyRaceStatusChange,
+  artistById,
+  commitCore,
+  createRaceFromDraft,
+  getPublicFoundingFans,
+  refundPolicyById,
+  updateRaceDraft,
+} from "./onecore/logic";
+import { seedOnecoreState } from "./onecore/seed";
+import type { OnecoreState, Race, RaceDraft, RaceStatus } from "./onecore/types";
 
 const HERO_BG_VIDEO = require("./assets/hero-bg.mp4");
 
@@ -164,7 +178,9 @@ type Overlay =
   | "curatorTools"
   | "venueAdmin"
   | "inviteArtist"
-  | "applyBattle";
+  | "applyBattle"
+  | "raceProposal"
+  | "adminRace";
 type BackingStep = "review" | "confirmed";
 type VenueMomentum = "Heating up" | "Almost unlocked" | "Slot won";
 type DistrictFilter = "전체" | "홍대" | "마포" | "이태원" | "성수";
@@ -2980,6 +2996,8 @@ function VenueFeedScreen({
   onOpenTicketQr,
   onQrPending,
   onInviteFriend,
+  onecoreRaces,
+  onOpenOnecoreRace,
 }: {
   district: DistrictFilter;
   onDistrictChange: (d: DistrictFilter) => void;
@@ -2996,6 +3014,8 @@ function VenueFeedScreen({
   onOpenTicketQr: (ticket: Ticket) => void;
   onQrPending: () => void;
   onInviteFriend: (venue: VenueCompetition, artist: CompetingArtist) => void;
+  onecoreRaces: { race: Race; artistName: string; artistGenre: string }[];
+  onOpenOnecoreRace: (raceId: string) => void;
 }) {
   const myActive = venues.filter((v) => {
     const pick = venueBackings[v.id];
@@ -3010,6 +3030,23 @@ function VenueFeedScreen({
   return (
     <>
       <LandingHero />
+
+      {onecoreRaces.length > 0 ? (
+        <View style={{ marginBottom: SPACE.lg }}>
+          <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, lineHeight: 26 }}>ONECORE 제안</Text>
+          <Text style={{ color: C.muted, fontSize: 13, marginTop: 4, marginBottom: SPACE.md, lineHeight: 19 }}>
+            100명의 코어가 모이면, 한 팀의 밤이 공연 준비 단계로 넘어갑니다
+          </Text>
+          {onecoreRaces.map(({ race, artistName, artistGenre }) => (
+            <OnecoreRaceCard
+              key={race.id}
+              race={race}
+              artist={{ id: race.artistId, name: artistName, genre: artistGenre, bio: "", tagline: "" }}
+              onPress={() => onOpenOnecoreRace(race.id)}
+            />
+          ))}
+        </View>
+      ) : null}
 
       <MyParticipatingSection
         venues={myActive}
@@ -4292,6 +4329,7 @@ function ProfileScreen({
   onExploreBattles,
   onOpenVenueAdmin,
   onOpenCuratorTools,
+  onOpenOnecoreAdmin,
   isCurator,
 }: {
   handle: string;
@@ -4307,6 +4345,7 @@ function ProfileScreen({
   onExploreBattles: () => void;
   onOpenVenueAdmin: () => void;
   onOpenCuratorTools: () => void;
+  onOpenOnecoreAdmin: () => void;
   isCurator: boolean;
 }) {
   const level = getFanLevel(reputation);
@@ -4578,11 +4617,17 @@ function ProfileScreen({
           </TouchableOpacity>
           <TouchableOpacity
             onPress={onOpenCuratorTools}
-            style={{ backgroundColor: ROLE.curator.bg, borderRadius: 20, padding: SPACE.md, borderWidth: 1, borderColor: ROLE.curator.border }}
+            style={{ backgroundColor: ROLE.curator.bg, borderRadius: 20, padding: SPACE.md, borderWidth: 1, borderColor: ROLE.curator.border, marginBottom: SPACE.sm }}
           >
             <Text style={{ color: ROLE.curator.primary, fontWeight: "800", textAlign: "center" }}>
               Curator tools · Approve artists
             </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onOpenOnecoreAdmin}
+            style={{ backgroundColor: "#422006", borderRadius: 20, padding: SPACE.md, borderWidth: 1, borderColor: C.gold + "66" }}
+          >
+            <Text style={{ color: C.gold, fontWeight: "800", textAlign: "center" }}>ONECORE Admin · Race & logs</Text>
           </TouchableOpacity>
         </>
       ) : null}
@@ -5320,6 +5365,12 @@ function AppContent() {
   const [flowEpoch, setFlowEpoch] = useState(0);
   const fanHandle = "mike_seoul";
   const isCurator = true;
+  const onecoreUserId = "user-mike";
+  const onecoreAdminId = "admin@fanstage";
+
+  const [onecoreState, setOnecoreState] = useState<OnecoreState>(() => seedOnecoreState());
+  const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
+  const [coreCommitError, setCoreCommitError] = useState<string | undefined>();
 
   const dismissToast = useCallback(() => setToast(null), []);
   const showToast = useCallback((msg: string) => setToast(msg), []);
@@ -5415,6 +5466,25 @@ function AppContent() {
   };
 
   const refundedPicks = useMemo(() => buildRefundedPicks(venues, venueBackings), [venues, venueBackings]);
+
+  const discoverOnecoreRaces = useMemo(() => {
+    return onecoreState.races
+      .filter((r) => r.status !== "draft")
+      .map((race) => {
+        const artist = artistById(onecoreState, race.artistId);
+        return {
+          race,
+          artistName: artist?.name ?? "아티스트",
+          artistGenre: artist?.genre ?? "",
+        };
+      });
+  }, [onecoreState]);
+
+  const openOnecoreRace = (raceId: string) => {
+    setSelectedRaceId(raceId);
+    setCoreCommitError(undefined);
+    setOverlay("raceProposal");
+  };
 
   const liveVenue = useMemo(() => findLiveVenue(venues, selectedVenue), [venues, selectedVenue]);
   const liveArtist = useMemo(() => findLiveArtist(liveVenue, selectedArtist), [liveVenue, selectedArtist]);
@@ -5640,6 +5710,61 @@ function AppContent() {
         />
       );
     }
+    if (overlay === "raceProposal" && selectedRaceId) {
+      const race = onecoreState.races.find((r) => r.id === selectedRaceId);
+      const artist = race ? artistById(onecoreState, race.artistId) : undefined;
+      const policy = race ? refundPolicyById(onecoreState, race.refundPolicyId) : undefined;
+      if (!race || !artist || !policy) return null;
+      const venues = onecoreState.venueCandidates.filter((v) => race.venueCandidateIds.includes(v.id));
+      return (
+        <RaceProposalScreen
+          race={race}
+          artist={artist}
+          refundPolicy={policy}
+          venues={venues}
+          foundingFans={getPublicFoundingFans(onecoreState, race.id)}
+          currentUserDisplayName="Mike"
+          onBack={closeOverlay}
+          commitError={coreCommitError}
+          onCommit={(opts) => {
+            const { state: next, error } = commitCore(onecoreState, race.id, onecoreUserId, opts);
+            if (error) {
+              setCoreCommitError(error);
+              return;
+            }
+            setOnecoreState(next);
+            setCoreCommitError(undefined);
+            showToast("core 참여가 반영되었습니다.");
+          }}
+        />
+      );
+    }
+    if (overlay === "adminRace") {
+      return (
+        <AdminRaceScreen
+          state={onecoreState}
+          adminId={onecoreAdminId}
+          onBack={closeOverlay}
+          onCreate={(draft, publishActive) => {
+            setOnecoreState((prev) => createRaceFromDraft(prev, draft, onecoreAdminId, publishActive));
+            showToast(publishActive ? "Race 게시됨" : "Race 초안 저장됨");
+          }}
+          onUpdate={(raceId, partial) => {
+            setOnecoreState((prev) => updateRaceDraft(prev, raceId, partial, onecoreAdminId));
+            showToast("Race 수정됨");
+          }}
+          onStatusChange={(raceId, toStatus, reason, visibleToPublic, failureKind) => {
+            setOnecoreState((prev) =>
+              applyRaceStatusChange(prev, raceId, toStatus, onecoreAdminId, reason, {
+                visibleToPublic,
+                failureKind,
+              })
+            );
+            showToast(`상태 → ${toStatus}`);
+          }}
+        />
+      );
+    }
     if (overlay === "curatorTools") {
       return (
         <CuratorToolsScreen
@@ -5828,6 +5953,7 @@ function AppContent() {
             onExploreBattles={() => setActiveTab("discover")}
             onOpenVenueAdmin={() => setOverlay("venueAdmin")}
             onOpenCuratorTools={() => setOverlay("curatorTools")}
+            onOpenOnecoreAdmin={() => setOverlay("adminRace")}
             isCurator={isCurator}
           />
         );
@@ -5851,6 +5977,8 @@ function AppContent() {
             onInviteFriend={(v, a) =>
               showToast(`친구 초대 링크 복사됨 · ${a.name} @ ${v.venueName} — 우리가 만든 공연이에요`)
             }
+            onecoreRaces={discoverOnecoreRaces}
+            onOpenOnecoreRace={openOnecoreRace}
           />
         );
     }
