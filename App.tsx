@@ -15,7 +15,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
 
 const HERO_BG_VIDEO = require("./assets/hero-bg.mp4");
@@ -42,6 +42,71 @@ const FANSTAGE_TAGLINE = "팬스테이지는 팬이 무대를 현실로 만드�
 const FANSTAGE_HERO_MAIN = "팬이 모이면, 무대가 열린다";
 const FANSTAGE_HERO_SUB =
   "한 공연장, 한 번의 선택. 가장 많은 지지를 받은 팀이 실제 무대에 오릅니다.";
+const ONECORE_TAGLINE_SHORT = "100명의 코어가 모이면, 한 팀의 밤이 열립니다.";
+const ONECORE_RACE_LEAD = "지금 무대에 가장 가까운 팀";
+const ONECORE_RACE_FINISH = "100코어를 먼저 채운 한 팀이 단독 공연을 엽니다.";
+const ONECORE_LINEUP_TITLE = "누가 이 밤의 주인공이 될까요?";
+const ONECORE_RULE_SUMMARY = "100코어를 먼저 채운 한 팀이 단독 공연을 엽니다. 실패 시 전액 환불.";
+const ONECORE_SOLO_CORE_GOAL = 100;
+const ONECORE_ALMOST_THERE_REMAINING = 35;
+
+function getVenueLeader(venue: VenueCompetition) {
+  return sortedArtists(venue)[0];
+}
+
+function getVenueOnecoreLeaderStats(venue: VenueCompetition) {
+  const leader = getVenueLeader(venue);
+  const cores = leader.supporters;
+  const toGo = Math.max(0, ONECORE_SOLO_CORE_GOAL - cores);
+  return { leader, cores, toGo };
+}
+
+/** Venues 탭: 아직 100코어를 향해 가는 무대만 */
+function isVenueOnecoreInProgress(venue: VenueCompetition) {
+  if (venue.winnerId) return false;
+  const { cores } = getVenueOnecoreLeaderStats(venue);
+  return cores < ONECORE_SOLO_CORE_GOAL;
+}
+
+function getVenueDiscoverBadge(venue: VenueCompetition) {
+  if (!isVenueOnecoreInProgress(venue)) return "성사 완료";
+  const { toGo } = getVenueOnecoreLeaderStats(venue);
+  return toGo <= ONECORE_ALMOST_THERE_REMAINING ? "성사 임박" : "모집 중";
+}
+
+function venueOnecoreProgressLine(venue: VenueCompetition) {
+  const { leader, toGo } = getVenueOnecoreLeaderStats(venue);
+  if (toGo > 0) return `${toGo}명만 더 모이면 ${leader.name} 단독 공연이 열립니다`;
+  return `${leader.name} 단독 공연 확정 조건 달성`;
+}
+
+function buildTicketWalletEntries(
+  venues: VenueCompetition[],
+  venueBackings: Record<string, string>,
+  wonTickets: Ticket[]
+) {
+  const converting: { id: string; venue: VenueCompetition; artist: CompetingArtist }[] = [];
+  const ready: Ticket[] = [];
+  const past: Ticket[] = [];
+
+  for (const ticket of wonTickets) {
+    const venue = venues.find((v) => v.id === ticket.venueId || v.venueName === ticket.venue);
+    if (venue && countdownEnded(venue.countdown)) past.push(ticket);
+    else ready.push(ticket);
+  }
+
+  for (const [venueId, pickId] of Object.entries(venueBackings)) {
+    const venue = venues.find((v) => v.id === venueId);
+    if (!venue || isVenueOnecoreInProgress(venue)) continue;
+    const artist = venue.artists.find((a) => a.id === pickId);
+    if (!artist) continue;
+    if (venue.winnerId && venue.winnerId !== pickId) continue;
+    if (findVenueEntryTicket(venue, pickId, wonTickets)) continue;
+    converting.push({ id: `conv-${venueId}-${pickId}`, venue, artist });
+  }
+
+  return { converting, ready, past };
+}
 
 const SCREEN_OVERLAY = {
   position: "absolute" as const,
@@ -365,6 +430,19 @@ function formatBookingDeadlineTension(c: VenueCompetition["countdown"]) {
   if (hours >= 1) return `마감 ${hours}시간 전`;
   if (minutes > 0) return "오늘 마감";
   return "마감 종료";
+}
+
+function formatBattleHeroStatus(venue: VenueCompetition, total: number) {
+  const parts: string[] = [];
+  if (!venue.winnerId) parts.push("라이브");
+  const toMin = Math.max(0, venue.minGoal - total);
+  if (toMin > 0 && toMin <= 25) parts.push("확정 임박");
+  const c = venue.countdown;
+  if (c.days === 0 && c.hours === 0 && c.minutes > 0) parts.push(`마감까지 ${c.minutes}분`);
+  else if (c.days === 0 && c.hours > 0 && c.hours <= 3) parts.push(`마감까지 ${c.hours}시간`);
+  else if (c.days === 0 && c.hours > 0) parts.push(`마감 ${c.hours}시간 전`);
+  else parts.push(formatCountdownUntil(c));
+  return parts.join(" / ");
 }
 
 function formatShowDateCompact(venue: VenueCompetition) {
@@ -782,7 +860,7 @@ const INITIAL_VENUES: VenueCompetition[] = [
     slotDate: "6월 18일 (수)",
     bookingCloseDate: "6월 16일 (월)",
     bookingCloseTime: "23:59",
-    countdown: { days: 0, hours: 0, minutes: 8 },
+    countdown: { days: 0, hours: 0, minutes: 6 },
     minGoal: 80,
     slotGenre: "Jazz",
     slotsOpen: 3,
@@ -804,6 +882,24 @@ const INITIAL_VENUES: VenueCompetition[] = [
         tagline: "심야 연기, 브라스 열기",
         story: "문미향의 보컬이 FF의 재즈 나이트를 완성한다.",
         latestTrack: { title: "연기 신호", duration: "5:02" },
+      },
+      {
+        id: "trioA",
+        name: "트리오 A",
+        genre: "퓨전 재즈",
+        supporters: 12,
+        tagline: "리듬 섹션, 날카로운 브레이크",
+        story: "트리오 A는 FF 신인 나이트에서 가장 빠르게 올라온 팀이다.",
+        latestTrack: { title: "블루 코리더", duration: "4:18" },
+      },
+      {
+        id: "bandB",
+        name: "밴드 B",
+        genre: "시티팝 재즈",
+        supporters: 8,
+        tagline: "도시 밤, 부드러운 그루브",
+        story: "밴드 B는 홍대 재즈 팬층의 숨은 후보다.",
+        latestTrack: { title: "네온 블루", duration: "3:54" },
       },
     ],
   },
@@ -831,7 +927,7 @@ type RefundedPick = {
   refundedAmount: string;
 };
 
-type TicketWalletFilter = "all" | "live" | "ticket" | "refund";
+type TicketWalletFilter = "all" | "converting" | "ticket" | "past" | "refund";
 
 type ArtistDetailReturn = null | "venueDetail" | "tickets" | "discover";
 
@@ -1279,10 +1375,108 @@ function artistCampaignTitle(artist: CompetingArtist, venue: VenueCompetition) {
 }
 
 function ticketOpenStatusLabel(countdown: VenueCompetition["countdown"], isUserPick: boolean) {
-  if (isUserPick) return "입장권 전환 가능";
+  if (isUserPick) return "티켓 전환 가능";
   if (countdown.days > 0) return `티켓 오픈 D-${countdown.days}`;
   if (countdown.hours > 0 || countdown.minutes > 0) return "티켓 오픈 임박";
-  return "입장권 전환 가능";
+  return "티켓 전환 가능";
+}
+
+type ShowPageStage = "recruiting" | "almost_there" | "confirmed" | "ticket_ready";
+type StatusTone = "green" | "pink" | "yellow" | "slate";
+
+function getShowPageStage(venue: VenueCompetition, artist: CompetingArtist, hasTicket: boolean): ShowPageStage {
+  if (venue.winnerId === artist.id) return hasTicket ? "ticket_ready" : "confirmed";
+  const { probability, remaining } = campaignPledgeStats(artist.supporters, venue.minGoal);
+  if (remaining <= 30 || probability >= 70) return "almost_there";
+  return "recruiting";
+}
+
+function showStageStatusLabel(stage: ShowPageStage): string {
+  if (stage === "recruiting") return "모집 중";
+  if (stage === "almost_there") return "성사 임박";
+  if (stage === "confirmed") return "공연 확정";
+  return "티켓 전환 가능";
+}
+
+function statusToneStyle(tone: StatusTone) {
+  if (tone === "green") return { bg: ROLE.fan.bg, border: ROLE.fan.border, color: ROLE.fan.primary };
+  if (tone === "pink") return { bg: "#2d1f4e", border: C.rival + "44", color: C.rival };
+  if (tone === "yellow") return { bg: "#422006", border: "#f59e0b66", color: C.gold };
+  return { bg: C.surface, border: C.border, color: C.muted };
+}
+
+function stageStatusTone(stage: ShowPageStage): StatusTone {
+  if (stage === "confirmed" || stage === "ticket_ready") return "green";
+  if (stage === "almost_there") return "yellow";
+  if (stage === "recruiting") return "pink";
+  return "slate";
+}
+
+type DemandSurfaceCopy = {
+  status: string;
+  context: string;
+  evidence: string;
+  current: number;
+  goal: number;
+  progressPct: number;
+  tone: StatusTone;
+};
+
+function demandDeadlineLabel(venue: VenueCompetition): string {
+  const c = venue.countdown;
+  if (c.days === 0 && c.hours === 0 && c.minutes === 0) return "마감됨";
+  if (c.days === 0) return "오늘 마감";
+  if (c.days === 1) return "내일 마감";
+  return `${c.days}일 후 마감`;
+}
+
+function buildDemandSurfaceCopy(
+  stage: ShowPageStage,
+  artist: CompetingArtist,
+  venue: VenueCompetition,
+  isUserPick: boolean
+): DemandSurfaceCopy {
+  const goal = venue.minGoal;
+  const current = artist.supporters;
+  const { remaining } = campaignPledgeStats(current, goal);
+  const progressPct = Math.min(100, Math.round((current / Math.max(goal, 1)) * 100));
+  const tone = stageStatusTone(stage);
+
+  if (stage === "confirmed" || stage === "ticket_ready") {
+    const ticketNote = isUserPick ? ticketOpenStatusLabel(venue.countdown, true) : ticketOpenStatusLabel(venue.countdown, false);
+    return {
+      status: showStageStatusLabel(stage),
+      context: `서울 팬 ${current}명이 만든 공연`,
+      evidence: `${current} / ${goal}명 · ${ticketNote}`,
+      current,
+      goal,
+      progressPct: 100,
+      tone,
+    };
+  }
+
+  return {
+    status: stage === "almost_there" ? "성사 임박" : "모집 중",
+    context: `${remaining}명만 더 모이면 ${artist.name} 무대가 열립니다`,
+    evidence: `${current} / ${goal}명 · ${demandDeadlineLabel(venue)}`,
+    current,
+    goal,
+    progressPct,
+    tone,
+  };
+}
+
+function getDemandPrimaryAction(
+  stage: ShowPageStage,
+  artist: CompetingArtist,
+  isUserPick: boolean,
+  hasTicket: boolean
+): string {
+  if (stage === "ticket_ready") return "입장권 보기";
+  if (stage === "confirmed") return "내 티켓 받기";
+  if (stage === "almost_there" && isUserPick) return "친구 초대하기";
+  if (isUserPick && stage === "recruiting") return "친구 초대하기";
+  return `${BACKING_PRICE} 예치하고 ${artist.name} 부르기`;
 }
 
 function venueBattleSummary(venue: VenueCompetition) {
@@ -1305,6 +1499,242 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 11, letterSpacing: 1.4, marginBottom: SPACE.sm }}>
       {children}
     </Text>
+  );
+}
+
+function ShowCard({ children, borderColor }: { children: React.ReactNode; borderColor?: string }) {
+  return (
+    <View
+      style={{
+        backgroundColor: C.card,
+        borderRadius: 24,
+        padding: SPACE.md,
+        marginBottom: SPACE.md,
+        borderWidth: 1,
+        borderColor: borderColor ?? C.border,
+      }}
+    >
+      {children}
+    </View>
+  );
+}
+
+function DemandFieldLabel({ children }: { children: string }) {
+  return (
+    <Text style={{ color: C.dim, fontSize: 10, fontWeight: "800", letterSpacing: 1.2, marginBottom: 6 }}>{children}</Text>
+  );
+}
+
+function DemandGraph({ current, goal, progressPct }: { current: number; goal: number; progressPct: number }) {
+  const segments = 16;
+  const filled = Math.round((Math.min(100, progressPct) / 100) * segments);
+  return (
+    <View style={{ marginTop: SPACE.sm }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: SPACE.xs }}>
+        <Text style={{ color: C.dim, fontSize: 10, fontWeight: "700" }}>서울 수요 그래프</Text>
+        <Text style={{ color: ROLE.fan.primary, fontSize: 10, fontWeight: "800" }}>
+          {current} / {goal}
+        </Text>
+      </View>
+      <View style={{ flexDirection: "row", alignItems: "flex-end", height: 52, gap: 3 }}>
+        {Array.from({ length: segments }).map((_, i) => {
+          const active = i < filled;
+          const h = 10 + ((i + 1) / segments) * 38;
+          return (
+            <View
+              key={i}
+              style={{
+                flex: 1,
+                height: h,
+                borderRadius: 4,
+                backgroundColor: active ? ROLE.fan.primary : C.border,
+                opacity: active ? 1 : 0.28,
+              }}
+            />
+          );
+        })}
+      </View>
+      <View style={{ height: 6, borderRadius: 999, backgroundColor: C.border, marginTop: SPACE.sm, overflow: "hidden" }}>
+        <View style={{ height: "100%", width: `${Math.min(100, progressPct)}%`, backgroundColor: ROLE.fan.primary, borderRadius: 999 }} />
+      </View>
+    </View>
+  );
+}
+
+function DemandSurfaceBlock({
+  copy,
+  artist,
+  venue,
+  stage,
+}: {
+  copy: DemandSurfaceCopy;
+  artist: CompetingArtist;
+  venue: VenueCompetition;
+  stage: ShowPageStage;
+}) {
+  const schedule = formatShowSchedule(venue);
+  const title =
+    stage === "confirmed" || stage === "ticket_ready" ? artistConfirmedTitle(artist, venue) : artistCampaignTitle(artist, venue);
+  const s = statusToneStyle(copy.tone);
+
+  return (
+    <ShowCard borderColor={s.border}>
+      <Text style={{ color: C.text, fontWeight: "900", fontSize: 22, letterSpacing: -0.5, marginBottom: 4 }}>{title}</Text>
+      <Text style={{ color: C.dim, fontSize: 13, fontWeight: "600", marginBottom: SPACE.md }}>
+        {venue.venueName} · {schedule}
+      </Text>
+
+      <DemandFieldLabel>상태</DemandFieldLabel>
+      <View
+        style={{
+          alignSelf: "flex-start",
+          backgroundColor: s.bg,
+          borderRadius: 999,
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+          borderWidth: 1,
+          borderColor: s.border,
+          marginBottom: SPACE.md,
+        }}
+      >
+        <Text style={{ color: s.color, fontWeight: "900", fontSize: 12 }}>{copy.status}</Text>
+      </View>
+
+      <DemandFieldLabel>맥락</DemandFieldLabel>
+      <Text style={{ color: C.text, fontSize: 17, fontWeight: "800", lineHeight: 26, marginBottom: SPACE.md }}>{copy.context}</Text>
+
+      <DemandFieldLabel>증거</DemandFieldLabel>
+      <Text style={{ color: ROLE.fan.primary, fontSize: 16, fontWeight: "800", marginBottom: SPACE.xs }}>{copy.evidence}</Text>
+      <DemandGraph current={copy.current} goal={copy.goal} progressPct={copy.progressPct} />
+    </ShowCard>
+  );
+}
+
+function FanCreditCard({ artist, isUserPick }: { artist: CompetingArtist; isUserPick: boolean }) {
+  const lines = [
+    `서울 팬 ${artist.supporters}명이 만든 공연`,
+    ...(isUserPick ? ["당신의 참여가 티켓으로 전환됐어요"] : []),
+    "Founding fan으로 기록됩니다",
+    "이 무대는 관객이 먼저 불렀습니다",
+  ];
+  return (
+    <ShowCard borderColor={ROLE.fan.border}>
+      {lines.map((line) => (
+        <Text key={line} style={{ color: "#cbd5e1", lineHeight: 26, fontSize: 15, fontWeight: line.includes("당신") ? "800" : "600" }}>
+          · {line}
+        </Text>
+      ))}
+      <Text style={{ color: C.dim, marginTop: SPACE.md, fontSize: 12, lineHeight: 18 }}>
+        티켓은 다른 곳에서도 살 수 있어요. 이 기록은 fanstage만 줍니다.
+      </Text>
+    </ShowCard>
+  );
+}
+
+function ShowStoryCard({ artist, venue }: { artist: CompetingArtist; venue: VenueCompetition }) {
+  return (
+    <ShowCard>
+      <Text style={{ color: "#cbd5e1", lineHeight: 24, fontSize: 15 }}>{artist.story}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", marginTop: SPACE.md, paddingTop: SPACE.md, borderTopWidth: 1, borderTopColor: C.border }}>
+        <Text style={{ fontSize: 16, color: ROLE.fan.primary, marginRight: SPACE.sm }}>▶</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: C.text, fontWeight: "800", fontSize: 15 }}>
+            {artist.latestTrack.title} · {artist.latestTrack.duration}
+          </Text>
+          <Text style={{ color: C.dim, marginTop: 4, fontSize: 13 }}>
+            {venue.venueName}에서 듣고 싶은 사람 {artist.supporters}명
+          </Text>
+        </View>
+      </View>
+    </ShowCard>
+  );
+}
+
+function ShowBottomActionBar({
+  primaryLabel,
+  onPrimary,
+  secondaryLabel,
+  onSecondary,
+  hint,
+}: {
+  primaryLabel: string;
+  onPrimary: () => void;
+  secondaryLabel?: string;
+  onSecondary?: () => void;
+  hint?: string;
+}) {
+  return (
+    <View
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        paddingHorizontal: SPACE.md,
+        paddingTop: SPACE.md,
+        paddingBottom: SPACE.lg,
+        backgroundColor: C.bg,
+        borderTopWidth: 1,
+        borderTopColor: C.border,
+      }}
+    >
+      <DemandFieldLabel>행동</DemandFieldLabel>
+      <TouchableOpacity onPress={onPrimary} style={{ backgroundColor: C.accent, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}>
+        <Text style={{ color: C.ink, fontWeight: "900", fontSize: 17 }}>{primaryLabel}</Text>
+      </TouchableOpacity>
+      {secondaryLabel && onSecondary ? (
+        <TouchableOpacity
+          onPress={onSecondary}
+          style={{
+            marginTop: SPACE.sm,
+            borderRadius: 18,
+            paddingVertical: 14,
+            alignItems: "center",
+            backgroundColor: C.surface,
+            borderWidth: 1,
+            borderColor: C.border,
+          }}
+        >
+          <Text style={{ color: C.muted, fontWeight: "700", fontSize: 15 }}>{secondaryLabel}</Text>
+        </TouchableOpacity>
+      ) : null}
+      {hint ? (
+        <Text style={{ color: C.dim, textAlign: "center", marginTop: SPACE.sm, fontSize: 12, fontWeight: "600" }}>{hint}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+function OverlayBackHeader({ onPress }: { onPress: () => void }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={{ paddingTop: insets.top + 12, paddingHorizontal: SPACE.md, zIndex: 20 }}>
+      <TouchableOpacity
+        onPress={onPress}
+        hitSlop={{ top: 10, right: 16, bottom: 10, left: 16 }}
+        style={{ minHeight: 44, justifyContent: "center", alignSelf: "flex-start" }}
+      >
+        <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 16 }}>← Back</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function ShowPageShell({ children, bottom }: { children: React.ReactNode; bottom?: React.ReactNode }) {
+  if (!bottom) {
+    return (
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+        {children}
+      </ScrollView>
+    );
+  }
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 180 }} showsVerticalScrollIndicator={false}>
+        {children}
+      </ScrollView>
+      {bottom}
+    </View>
   );
 }
 
@@ -2252,6 +2682,7 @@ function ParticipatingVenueCard({
   onOpenArtist,
   onOpenTicketQr,
   onQrPending,
+  onInviteFriend,
 }: {
   venue: VenueCompetition;
   userPickId: string;
@@ -2259,17 +2690,23 @@ function ParticipatingVenueCard({
   onOpenArtist: (artist: CompetingArtist) => void;
   onOpenTicketQr: (ticket: Ticket) => void;
   onQrPending: () => void;
+  onInviteFriend?: () => void;
 }) {
   const sorted = sortedArtists(venue);
   const total = totalSupporters(venue);
-  const phase = getVenueDemandPhase(venue, total);
   const pickedArtist = sorted.find((a) => a.id === userPickId);
   if (!pickedArtist) return null;
 
-  const showQr = canShowParticipatingQr(phase);
+  const inOnecoreCampaign = isVenueOnecoreInProgress(venue);
+  const { leader, cores } = getVenueOnecoreLeaderStats(venue);
+  const discoverBadge = getVenueDiscoverBadge(venue);
   const entryTicket = findVenueEntryTicket(venue, userPickId, wonTickets);
-  const stageLabel = participationStageLabel(phase, !!entryTicket);
-  const ctaLabel = participationCardCtaLabel(phase, !!entryTicket);
+  const stageLabel = inOnecoreCampaign ? discoverBadge : participationStageLabel(getVenueDemandPhase(venue, total), !!entryTicket);
+  const metricLine = inOnecoreCampaign
+    ? `1위 ${leader.name} 기준 ${cores} / ${ONECORE_SOLO_CORE_GOAL}명`
+    : venueParticipatingCardMetric(total, venue.minGoal, venue.capacity, getVenueDemandPhase(venue, total));
+  const subline = inOnecoreCampaign ? venueOnecoreProgressLine(venue) : null;
+  const ctaLabel = inOnecoreCampaign ? "이 팀 밀기" : participationCardCtaLabel(getVenueDemandPhase(venue, total), !!entryTicket);
 
   const handleQrPress = () => {
     if (entryTicket) onOpenTicketQr(entryTicket);
@@ -2287,7 +2724,7 @@ function ParticipatingVenueCard({
         <View style={participatingCardStyles.veil} />
         <View style={participatingCardStyles.gradientMid} />
         <View style={participatingCardStyles.gradientBottom} />
-        {showQr ? (
+        {!inOnecoreCampaign && entryTicket ? (
           <TouchableOpacity
             onPress={handleQrPress}
             style={participatingCardStyles.qrBtn}
@@ -2305,15 +2742,44 @@ function ParticipatingVenueCard({
             <Text style={participatingCardStyles.venueLine}>
               {venue.venueName} · {venue.district}
             </Text>
-            <Text style={participatingCardStyles.metric}>
-              {venueParticipatingCardMetric(total, venue.minGoal, venue.capacity, phase)}
-            </Text>
+            <Text style={participatingCardStyles.metric}>{metricLine}</Text>
+            {subline ? (
+              <Text style={[participatingCardStyles.schedule, { color: "rgba(255,255,255,0.88)", marginTop: 4 }]}>
+                {subline}
+              </Text>
+            ) : null}
             <Text style={participatingCardStyles.schedule}>{formatBookingDeadlineTension(venue.countdown)}</Text>
             <Text style={[participatingCardStyles.schedule, { marginTop: 2 }]}>{formatShowDateCompact(venue)}</Text>
           </View>
-          <TouchableOpacity onPress={() => onOpenArtist(pickedArtist)} style={participatingCardStyles.cta} activeOpacity={0.9}>
-            <Text style={participatingCardStyles.ctaLabel}>{ctaLabel}</Text>
-          </TouchableOpacity>
+          {inOnecoreCampaign ? (
+            <View style={{ gap: SPACE.sm }}>
+              <TouchableOpacity onPress={() => onOpenArtist(pickedArtist)} style={participatingCardStyles.cta} activeOpacity={0.9}>
+                <Text style={participatingCardStyles.ctaLabel}>{ctaLabel}</Text>
+              </TouchableOpacity>
+              <View style={{ flexDirection: "row", gap: SPACE.sm }}>
+                <TouchableOpacity
+                  onPress={() => onOpenArtist(pickedArtist)}
+                  style={[participatingCardStyles.cta, { flex: 1, backgroundColor: "rgba(255,255,255,0.12)" }]}
+                  activeOpacity={0.9}
+                >
+                  <Text style={[participatingCardStyles.ctaLabel, { color: "#fff" }]}>참여하기</Text>
+                </TouchableOpacity>
+                {onInviteFriend ? (
+                  <TouchableOpacity
+                    onPress={onInviteFriend}
+                    style={[participatingCardStyles.cta, { flex: 1, backgroundColor: "rgba(255,255,255,0.12)" }]}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={[participatingCardStyles.ctaLabel, { color: "#fff" }]}>친구 초대하기</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity onPress={() => onOpenArtist(pickedArtist)} style={participatingCardStyles.cta} activeOpacity={0.9}>
+              <Text style={participatingCardStyles.ctaLabel}>{ctaLabel}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ImageBackground>
     </View>
@@ -2330,9 +2796,9 @@ function ExploreVenueCard({
   const sorted = sortedArtists(venue);
   const total = totalSupporters(venue);
   const g = genreTheme(venue.slotGenre);
-  const phase = getVenueDemandPhase(venue, total);
-  const toMin = Math.max(0, venue.minGoal - total);
-  const remaining = Math.max(0, venue.capacity - total);
+  const { leader, cores } = getVenueOnecoreLeaderStats(venue);
+  const discoverBadge = getVenueDiscoverBadge(venue);
+  const progressPct = Math.min(100, Math.round((cores / ONECORE_SOLO_CORE_GOAL) * 100));
   return (
     <View
       style={{
@@ -2364,21 +2830,20 @@ function ExploreVenueCard({
           }}
         >
           <Text style={{ color: g.primary, fontWeight: "800", fontSize: 11, letterSpacing: 0.2 }}>
-            {venueExploreBadge(phase)}
+            {discoverBadge}
           </Text>
           <Text style={{ color: C.text, fontWeight: "900", fontSize: 19, lineHeight: 26, marginTop: 6, letterSpacing: -0.3 }}>
-            {venueExploreHeadline(phase, toMin, remaining)}
+            1위 {leader.name} {cores} / {ONECORE_SOLO_CORE_GOAL}명
           </Text>
           <Text style={{ color: C.muted, marginTop: 5, fontSize: 12, fontWeight: "600", lineHeight: 17 }}>
-            {venueExploreSecondary(total, venue.minGoal, venue.capacity, phase)}
+            {venueOnecoreProgressLine(venue)}
           </Text>
-          <VenueCapacityBar
-            total={total}
-            minGoal={venue.minGoal}
-            capacity={venue.capacity}
-            fillColor={phase === "pre_min" ? g.primary : C.gold}
-            animateOnMount
-          />
+          <View style={{ height: 8, backgroundColor: C.border, borderRadius: 999, marginTop: SPACE.sm, overflow: "hidden" }}>
+            <View style={{ width: `${progressPct}%`, height: "100%", backgroundColor: g.primary }} />
+          </View>
+          <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 11, fontWeight: "600" }}>
+            전체 참여 {total}명 · {sorted.length}팀 경쟁
+          </Text>
         </View>
 
         <Text style={{ color: C.dim, marginTop: SPACE.md, fontSize: 12, fontWeight: "600" }}>
@@ -2400,7 +2865,7 @@ function ExploreVenueCard({
             },
           ]}
         >
-          <Text style={{ color: C.ink, fontWeight: "900", fontSize: 14 }}>이 공연 만들기</Text>
+          <Text style={{ color: C.ink, fontWeight: "900", fontSize: 14 }}>참여하기</Text>
         </Pressable>
       </View>
     </View>
@@ -2448,6 +2913,7 @@ function MyParticipatingSection({
   onOpenArtist,
   onOpenTicketQr,
   onQrPending,
+  onInviteFriend,
 }: {
   venues: VenueCompetition[];
   venueBackings: Record<string, string>;
@@ -2455,18 +2921,21 @@ function MyParticipatingSection({
   onOpenArtist: (v: VenueCompetition, a: CompetingArtist) => void;
   onOpenTicketQr: (ticket: Ticket) => void;
   onQrPending: () => void;
+  onInviteFriend: (venue: VenueCompetition, artist: CompetingArtist) => void;
 }) {
   if (venues.length === 0) return null;
 
   return (
     <View style={{ marginBottom: SPACE.lg }}>
-      <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, lineHeight: 26 }}>내가 참여 중인 공연</Text>
+      <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, lineHeight: 26 }}>진행 중</Text>
       <Text style={{ color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 4, marginBottom: SPACE.md }}>
-        당신이 선택한 팀의 무대가 만들어지고 있어요
+        아직 100코어를 향해 가는 공연만 · 내가 밀고 있는 무대
       </Text>
       {venues.map((venue) => {
         const pickId = venueBackings[venue.id];
         if (!pickId) return null;
+        const artist = venue.artists.find((a) => a.id === pickId);
+        if (!artist) return null;
         return (
           <ParticipatingVenueCard
             key={venue.id}
@@ -2476,48 +2945,7 @@ function MyParticipatingSection({
             onOpenArtist={(a) => onOpenArtist(venue, a)}
             onOpenTicketQr={onOpenTicketQr}
             onQrPending={onQrPending}
-          />
-        );
-      })}
-    </View>
-  );
-}
-
-function MyCompletedStagesSection({
-  venues,
-  venueBackings,
-  wonTickets,
-  onOpenArtist,
-  onOpenTicketQr,
-  onQrPending,
-}: {
-  venues: VenueCompetition[];
-  venueBackings: Record<string, string>;
-  wonTickets: Ticket[];
-  onOpenArtist: (v: VenueCompetition, a: CompetingArtist) => void;
-  onOpenTicketQr: (ticket: Ticket) => void;
-  onQrPending: () => void;
-}) {
-  if (venues.length === 0) return null;
-
-  return (
-    <View style={{ marginBottom: SPACE.lg }}>
-      <Text style={{ color: C.text, fontWeight: "900", fontSize: 22, lineHeight: 28 }}>성사 완료된 공연</Text>
-      <Text style={{ color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 4, marginBottom: SPACE.md }}>
-        당신의 선택이 실제 티켓으로 바뀐 무대예요
-      </Text>
-      {venues.map((venue) => {
-        const pickId = venueBackings[venue.id];
-        if (!pickId) return null;
-        return (
-          <ParticipatingVenueCard
-            key={venue.id}
-            venue={venue}
-            userPickId={pickId}
-            wonTickets={wonTickets}
-            onOpenArtist={(a) => onOpenArtist(venue, a)}
-            onOpenTicketQr={onOpenTicketQr}
-            onQrPending={onQrPending}
+            onInviteFriend={() => onInviteFriend(venue, artist)}
           />
         );
       })}
@@ -2528,9 +2956,9 @@ function MyCompletedStagesSection({
 function DiscoverFeedHeading({ count }: { count: number }) {
   return (
     <View style={{ marginBottom: SPACE.md }}>
-      <Text style={{ color: C.text, fontWeight: "900", fontSize: 22, lineHeight: 28 }}>지금 성사 중인 공연</Text>
+      <Text style={{ color: C.text, fontWeight: "900", fontSize: 22, lineHeight: 28 }}>진행 중</Text>
       <Text style={{ color: C.muted, fontSize: 14, lineHeight: 20, marginTop: 4 }}>
-        팬들의 선택으로 열리는 무대들{count > 0 ? ` · ${count}개` : ""}
+        아직 100코어를 향해 가는 공연만{count > 0 ? ` · ${count}개` : ""}
       </Text>
     </View>
   );
@@ -2551,6 +2979,7 @@ function VenueFeedScreen({
   onBackArtist,
   onOpenTicketQr,
   onQrPending,
+  onInviteFriend,
 }: {
   district: DistrictFilter;
   onDistrictChange: (d: DistrictFilter) => void;
@@ -2566,38 +2995,21 @@ function VenueFeedScreen({
   onBackArtist: (v: VenueCompetition, a: CompetingArtist) => void;
   onOpenTicketQr: (ticket: Ticket) => void;
   onQrPending: () => void;
+  onInviteFriend: (venue: VenueCompetition, artist: CompetingArtist) => void;
 }) {
   const myActive = venues.filter((v) => {
     const pick = venueBackings[v.id];
     if (!pick) return false;
-    return !venueIsClosed(v, totalSupporters(v));
-  });
-  const myCompleted = venues.filter((v) => {
-    const pick = venueBackings[v.id];
-    if (!pick) return false;
-    return venueIsClosed(v, totalSupporters(v));
+    return isVenueOnecoreInProgress(v);
   });
   const discoverActive = venues.filter((v) => {
     if (venueBackings[v.id]) return false;
-    return !venueIsClosed(v, totalSupporters(v));
-  });
-  const closed = venues.filter((v) => {
-    if (venueBackings[v.id]) return false;
-    return venueIsClosed(v, totalSupporters(v));
+    return isVenueOnecoreInProgress(v);
   });
 
   return (
     <>
       <LandingHero />
-
-      <MyCompletedStagesSection
-        venues={myCompleted}
-        venueBackings={venueBackings}
-        wonTickets={wonTickets}
-        onOpenArtist={onOpenArtist}
-        onOpenTicketQr={onOpenTicketQr}
-        onQrPending={onQrPending}
-      />
 
       <MyParticipatingSection
         venues={myActive}
@@ -2606,6 +3018,7 @@ function VenueFeedScreen({
         onOpenArtist={onOpenArtist}
         onOpenTicketQr={onOpenTicketQr}
         onQrPending={onQrPending}
+        onInviteFriend={onInviteFriend}
       />
 
       <UnfoldableFilters
@@ -2630,24 +3043,338 @@ function VenueFeedScreen({
               </>
             ) : myActive.length > 0 ? (
               <Text style={{ color: C.muted, fontSize: 14, lineHeight: 20, marginBottom: SPACE.lg }}>
-                참여 중인 공연만 있습니다. 새 무대는 필터를 바꿔 보세요.
+                참여 중인 무대만 보입니다. 성사된 공연은 Tickets 탭에서 확인하세요.
               </Text>
-            ) : null}
-
-            {closed.length > 0 ? (
-              <View style={{ marginTop: SPACE.md, marginBottom: SPACE.lg }}>
-                <SectionLabel>마감된 공연</SectionLabel>
-                <Text style={{ color: C.muted, fontSize: 13, marginBottom: SPACE.md, lineHeight: 19 }}>
-                  성사가 끝났거나 매진된 무대예요
-                </Text>
-                {closed.map((venue) => (
-                  <ClosedVenueCard key={venue.id} venue={venue} userPickId={venueBackings[venue.id]} />
-                ))}
-              </View>
             ) : null}
         </>
       )}
     </>
+  );
+}
+
+function BattleVenueHero({ venue, total }: { venue: VenueCompetition; total: number }) {
+  const g = genreTheme(venue.slotGenre);
+  return (
+    <View style={{ marginBottom: SPACE.md }}>
+      <Text style={{ color: g.primary, fontWeight: "900", fontSize: 32, letterSpacing: -1 }}>{genreKo(venue.slotGenre)}</Text>
+      <Text style={{ color: C.muted, marginTop: SPACE.xs, fontSize: 14, fontWeight: "700", lineHeight: 20 }}>
+        {formatBattleHeroStatus(venue, total)}
+      </Text>
+      <Text style={{ color: C.dim, marginTop: 4, fontSize: 13, fontWeight: "600" }}>
+        {venue.venueName} · 정원 {venue.capacity}
+      </Text>
+    </View>
+  );
+}
+
+function OneCoreRaceProgressBar({ cores, goal, accent }: { cores: number; goal: number; accent: string }) {
+  const pct = Math.min(100, Math.round((cores / Math.max(goal, 1)) * 100));
+  return (
+    <View style={{ marginTop: SPACE.md }}>
+      <View style={{ height: 10, borderRadius: 999, backgroundColor: C.border, overflow: "hidden" }}>
+        <View style={{ height: "100%", width: `${pct}%`, backgroundColor: accent, borderRadius: 999 }} />
+      </View>
+    </View>
+  );
+}
+
+function CoreRaceCard({
+  venue,
+  leader,
+  total,
+  teamCount,
+}: {
+  venue: VenueCompetition;
+  leader: CompetingArtist;
+  total: number;
+  teamCount: number;
+}) {
+  const g = genreTheme(venue.slotGenre);
+  const goal = ONECORE_SOLO_CORE_GOAL;
+  const cores = leader.supporters;
+  const toGo = Math.max(0, goal - cores);
+  const raceLine =
+    toGo > 0 ? `${toGo}코어만 더 모이면 단독 공연 확정` : `${leader.name} 단독 공연 확정`;
+
+  return (
+    <ShowCard borderColor={g.primary + "66"}>
+      <Text style={{ color: g.primary, fontWeight: "900", fontSize: 11, letterSpacing: 1.2 }}>CORE RACE</Text>
+      <Text style={{ color: C.muted, marginTop: SPACE.sm, fontSize: 14, fontWeight: "700" }}>{ONECORE_RACE_LEAD}</Text>
+      <Text style={{ color: C.text, fontWeight: "900", fontSize: 34, marginTop: SPACE.xs, letterSpacing: -0.8 }}>{leader.name}</Text>
+      <Text style={{ color: C.text, fontWeight: "800", fontSize: 22, marginTop: 4, letterSpacing: -0.3 }}>
+        {cores} / {goal}코어
+      </Text>
+      {toGo > 0 ? (
+        <Text style={{ color: C.muted, marginTop: 4, fontSize: 15, fontWeight: "700" }}>
+          {toGo}코어 남음
+        </Text>
+      ) : null}
+      <OneCoreRaceProgressBar cores={cores} goal={goal} accent={g.primary} />
+      <Text style={{ color: C.text, fontSize: 17, fontWeight: "800", marginTop: SPACE.md, lineHeight: 24 }}>{raceLine}</Text>
+      <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 13, fontWeight: "600", lineHeight: 20 }}>{ONECORE_RACE_FINISH}</Text>
+      <Text style={{ color: C.dim, marginTop: SPACE.md, fontSize: 12, fontWeight: "600" }}>
+        전체 참여 {total}코어 · {teamCount}팀 달리는 중
+      </Text>
+    </ShowCard>
+  );
+}
+
+function BattleLineupSectionHeader({ teamCount }: { teamCount: number }) {
+  return (
+    <View style={{ marginBottom: SPACE.md }}>
+      <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 11, letterSpacing: 1.2 }}>LINEUP</Text>
+      <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, lineHeight: 26, marginTop: 4 }}>{ONECORE_LINEUP_TITLE}</Text>
+      <Text style={{ color: C.gold, marginTop: SPACE.xs, fontSize: 13, fontWeight: "800" }}>{teamCount}팀이 이 밤을 두고 달리고 있어요</Text>
+    </View>
+  );
+}
+
+function BattleLeaderRaceCard({
+  artist,
+  isUserPick,
+  blockedByOtherPick,
+  isWinner,
+  onOpenArtist,
+  onPick,
+}: {
+  artist: CompetingArtist;
+  isUserPick: boolean;
+  blockedByOtherPick: boolean;
+  isWinner: boolean;
+  onOpenArtist: () => void;
+  onPick: () => void;
+}) {
+  const goal = ONECORE_SOLO_CORE_GOAL;
+  const cores = artist.supporters;
+  const toGo = Math.max(0, goal - cores);
+
+  return (
+    <View
+      style={{
+        backgroundColor: isUserPick ? "#13231a" : C.card,
+        borderRadius: 24,
+        padding: SPACE.lg,
+        marginBottom: SPACE.md,
+        borderWidth: 2,
+        borderColor: isUserPick ? ROLE.fan.border : C.gold + "88",
+      }}
+    >
+      <Text style={{ color: C.gold, fontWeight: "900", fontSize: 12, letterSpacing: 0.6 }}>1위 · 지금 가장 앞서는 팀</Text>
+      <TouchableOpacity onPress={onOpenArtist} activeOpacity={0.85}>
+        <Text style={{ color: C.text, fontWeight: "900", fontSize: 30, marginTop: SPACE.sm, letterSpacing: -0.6 }}>{artist.name}</Text>
+        <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 26, marginTop: SPACE.xs }}>{cores}코어</Text>
+        <Text style={{ color: C.muted, marginTop: 4, fontSize: 15, fontWeight: "700" }}>
+          {toGo > 0 ? `단독 공연까지 ${toGo}코어` : "단독 공연 조건 달성"}
+        </Text>
+        <Text style={{ color: C.dim, marginTop: 4, fontSize: 13, fontWeight: "600" }}>{artist.genre}</Text>
+      </TouchableOpacity>
+
+      <View style={{ marginTop: SPACE.lg }}>
+        {isUserPick ? (
+          <Text style={{ color: ROLE.fan.soft, fontSize: 14, fontWeight: "800", textAlign: "center", paddingVertical: 14 }}>
+            내가 밀고 있는 팀
+          </Text>
+        ) : blockedByOtherPick ? (
+          <Text style={{ color: C.dim, fontSize: 13, fontWeight: "600", textAlign: "center", lineHeight: 20, paddingVertical: 12 }}>
+            다른 팀을 밀려면 현재 선택을 취소하세요
+          </Text>
+        ) : isWinner ? null : (
+          <TouchableOpacity
+            onPress={onPick}
+            style={{ backgroundColor: C.accent, borderRadius: 16, paddingVertical: 18, alignItems: "center" }}
+          >
+            <Text style={{ color: C.ink, fontWeight: "900", fontSize: 17 }}>
+              {artist.name} 밀어주기 · {BACKING_PRICE}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function BattleChaserRaceCard({
+  artist,
+  rank,
+  isUserPick,
+  blockedByOtherPick,
+  isWinner,
+  onOpenArtist,
+  onPick,
+}: {
+  artist: CompetingArtist;
+  rank: number;
+  isUserPick: boolean;
+  blockedByOtherPick: boolean;
+  isWinner: boolean;
+  onOpenArtist: () => void;
+  onPick: () => void;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: isUserPick ? "#13231a" : C.surface,
+        borderRadius: 14,
+        paddingVertical: SPACE.sm + 2,
+        paddingHorizontal: SPACE.md,
+        marginBottom: SPACE.xs,
+        borderWidth: isUserPick ? 2 : 1,
+        borderColor: isUserPick ? ROLE.fan.border : C.border,
+      }}
+    >
+      <TouchableOpacity onPress={onOpenArtist} activeOpacity={0.85} style={{ flex: 1 }}>
+        <Text style={{ color: C.dim, fontWeight: "800", fontSize: 11 }}>{rank}위</Text>
+        <View style={{ flexDirection: "row", alignItems: "baseline", marginTop: 2, flexWrap: "wrap" }}>
+          <Text style={{ color: C.text, fontWeight: "800", fontSize: 16 }}>{artist.name}</Text>
+          <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 15, marginLeft: SPACE.sm }}>{artist.supporters}코어</Text>
+        </View>
+      </TouchableOpacity>
+
+      {isUserPick ? (
+        <Text style={{ color: ROLE.fan.soft, fontSize: 11, fontWeight: "700" }}>서포트 중</Text>
+      ) : blockedByOtherPick ? (
+        <Text style={{ color: C.dim, fontSize: 11, fontWeight: "600" }}>선택됨</Text>
+      ) : isWinner ? null : (
+        <TouchableOpacity
+          onPress={onPick}
+          style={{
+            backgroundColor: C.card,
+            borderRadius: 10,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            borderWidth: 1,
+            borderColor: C.border,
+          }}
+        >
+          <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 13 }}>선택</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+function BattleArtistSelection({
+  venue,
+  sorted,
+  userPickId,
+  onOpenArtist,
+  onBackArtist,
+}: {
+  venue: VenueCompetition;
+  sorted: CompetingArtist[];
+  userPickId?: string;
+  onOpenArtist: (a: CompetingArtist) => void;
+  onBackArtist: (a: CompetingArtist) => void;
+}) {
+  const hasPick = !!userPickId;
+  if (sorted.length === 0) return null;
+
+  const [leader, ...chasers] = sorted;
+
+  return (
+    <View style={{ marginBottom: SPACE.lg }}>
+      <BattleLineupSectionHeader teamCount={sorted.length} />
+      <BattleLeaderRaceCard
+        artist={leader}
+        isUserPick={userPickId === leader.id}
+        blockedByOtherPick={hasPick && userPickId !== leader.id && !venue.winnerId}
+        isWinner={venue.winnerId === leader.id}
+        onOpenArtist={() => onOpenArtist(leader)}
+        onPick={() => onBackArtist(leader)}
+      />
+      {chasers.map((artist, i) => (
+        <BattleChaserRaceCard
+          key={artist.id}
+          artist={artist}
+          rank={i + 2}
+          isUserPick={userPickId === artist.id}
+          blockedByOtherPick={hasPick && userPickId !== artist.id && !venue.winnerId}
+          isWinner={venue.winnerId === artist.id}
+          onOpenArtist={() => onOpenArtist(artist)}
+          onPick={() => onBackArtist(artist)}
+        />
+      ))}
+    </View>
+  );
+}
+
+function BattleRulesExpandable() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <ShowCard>
+      <TouchableOpacity
+        onPress={() => setOpen((v) => !v)}
+        style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+        activeOpacity={0.85}
+      >
+        <Text style={{ color: C.dim, fontWeight: "800", fontSize: 12, letterSpacing: 0.4 }}>RULE</Text>
+        <Text style={{ color: C.muted, fontWeight: "800", fontSize: 12 }}>{open ? "접기" : "자세히"}</Text>
+      </TouchableOpacity>
+      <Text style={{ color: C.muted, marginTop: SPACE.sm, fontSize: 13, lineHeight: 20, fontWeight: "600" }}>{ONECORE_RULE_SUMMARY}</Text>
+      {open ? (
+        <View style={{ marginTop: SPACE.md, paddingTop: SPACE.md, borderTopWidth: 1, borderTopColor: C.border }}>
+          <Text style={{ color: C.dim, fontSize: 13, lineHeight: 22 }}>{ONECORE_TAGLINE_SHORT}</Text>
+          <Text style={{ color: "#cbd5e1", lineHeight: 24, fontSize: 13, marginTop: SPACE.sm }}>
+            · 네 팀이 달리지만, 이 밤을 여는 건 100코어를 먼저 채운 한 팀
+          </Text>
+          <Text style={{ color: ROLE.fan.soft, lineHeight: 24, fontSize: 13, fontWeight: "700", marginTop: SPACE.xs }}>
+            · 내가 고른 팀이 1위가 아니어도 공연 성사 시 티켓 발급
+          </Text>
+          <Text style={{ color: ROLE.fan.soft, lineHeight: 24, fontSize: 13, fontWeight: "700" }}>· 공연 실패 시 전액 환불</Text>
+        </View>
+      ) : null}
+    </ShowCard>
+  );
+}
+
+function BattleVenueInfoExpandable({
+  venue,
+  onInvite,
+  onApply,
+}: {
+  venue: VenueCompetition;
+  onInvite: () => void;
+  onApply: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const g = genreTheme(venue.slotGenre);
+
+  return (
+    <ShowCard>
+      <TouchableOpacity onPress={() => setOpen((v) => !v)} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <Text style={{ color: C.dim, fontWeight: "800", fontSize: 13 }}>공연장 정보</Text>
+        <Text style={{ color: g.primary, fontWeight: "800", fontSize: 13 }}>{open ? "접기" : "펼쳐보기"}</Text>
+      </TouchableOpacity>
+      {open ? (
+        <View style={{ marginTop: SPACE.md, paddingTop: SPACE.md, borderTopWidth: 1, borderTopColor: C.border }}>
+          <Text style={{ color: C.text, fontWeight: "700", fontSize: 14, lineHeight: 22 }}>{venue.address}</Text>
+          <Text style={{ color: C.muted, marginTop: SPACE.sm, fontSize: 14, lineHeight: 22 }}>
+            정원 {venue.capacity} · {genreKo(venue.slotGenre)}
+          </Text>
+          <Text style={{ color: C.muted, marginTop: SPACE.xs, fontSize: 14 }}>홍대역 도보 8분 · 휠체어 접근 가능</Text>
+          <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 13 }}>{venue.slotLabel}</Text>
+          {venue.slotsOpen > 0 && !venue.winnerId ? (
+            <View style={{ flexDirection: "row", marginTop: SPACE.md, gap: SPACE.sm }}>
+              <TouchableOpacity
+                onPress={onInvite}
+                style={{ flex: 1, backgroundColor: C.surface, borderRadius: 12, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: C.border }}
+              >
+                <Text style={{ color: C.rival, fontWeight: "800", fontSize: 13 }}>아티스트 초대</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={onApply}
+                style={{ flex: 1, backgroundColor: C.surface, borderRadius: 12, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: C.border }}
+              >
+                <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 13 }}>배틀 지원</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+    </ShowCard>
   );
 }
 
@@ -2675,130 +3402,40 @@ function VenueDetailScreen({
   onApply: () => void;
 }) {
   const sorted = sortedArtists(venue);
-  const leader = sorted[0];
-  const momentum = getVenueMomentum(venue);
   const total = totalSupporters(venue);
   const hasPick = !!userPickId;
 
+  const leader = sorted[0];
+
   return (
     <>
-      <ScreenHeader
-        title={genreKo(venue.slotGenre)}
-        titleColor={genreTheme(venue.slotGenre).primary}
-        titleSize={38}
-        subtitle={`${venue.venueName} · ${venue.district} · 정원 ${venue.capacity}`}
-        onBack={onBack}
-        eyebrow="공연장 배틀"
+      <BattleVenueHero venue={venue} total={total} />
+      {leader ? <CoreRaceCard venue={venue} total={total} leader={leader} teamCount={sorted.length} /> : null}
+
+      <BattleArtistSelection
+        venue={venue}
+        sorted={sorted}
+        userPickId={userPickId}
+        onOpenArtist={onOpenArtist}
+        onBackArtist={onBackArtist}
       />
-      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginBottom: SPACE.md, gap: 8 }}>
-        {!venue.winnerId ? <LiveBadgeStatic /> : null}
-        <MomentumBadge momentum={momentum} />
-        <CountdownPill venue={venue} />
-      </View>
 
-      <View style={{ backgroundColor: C.card, borderRadius: 20, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
-        <Text style={{ color: C.dim, fontWeight: "700", fontSize: 12 }}>공연장 정보</Text>
-        <Text style={{ color: C.text, fontWeight: "800", fontSize: 16, marginTop: SPACE.xs, lineHeight: 24 }}>{venue.address}</Text>
-        <Text style={{ color: C.muted, marginTop: SPACE.sm, fontSize: 14, lineHeight: 22 }}>
-          {venue.slotLabel} · {venue.slotDate}
-        </Text>
-        <Text style={{ color: C.muted, marginTop: SPACE.xs, fontSize: 14 }}>
-          {genreKo(venue.slotGenre)} · 정원 {venue.capacity}
-        </Text>
-        {venue.slotsOpen > 0 ? (
-          <Text style={{ color: C.accentSoft, marginTop: SPACE.sm, fontWeight: "800", fontSize: 14 }}>
-            아티스트 지원 가능 {venue.slotsOpen}석
-          </Text>
-        ) : null}
-        <View style={{ height: 1, backgroundColor: C.border, marginVertical: SPACE.md }} />
-        {(() => {
-          const demand = venueDemandInfo(venue, total);
-          const phase = getVenueDemandPhase(venue, total);
-          const g = genreTheme(venue.slotGenre);
-          return (
-            <View style={{ marginBottom: SPACE.md }}>
-              <Text style={{ color: g.primary, fontWeight: "800", fontSize: 11 }}>{demand.badge}</Text>
-              <Text style={{ color: C.muted, marginTop: 4, fontSize: 13, fontWeight: "700", lineHeight: 19 }}>{demand.metric}</Text>
-              <Text style={{ color: C.text, fontWeight: "800", fontSize: 16, marginTop: 6 }}>{demand.headline}</Text>
-              {demand.subline ? (
-                <Text style={{ color: C.dim, marginTop: 3, fontSize: 12, lineHeight: 17 }}>{demand.subline}</Text>
-              ) : null}
-              <VenueCapacityBar
-                total={total}
-                minGoal={venue.minGoal}
-                capacity={venue.capacity}
-                fillColor={phase === "pre_min" ? g.primary : C.gold}
-              />
-              <VenueScheduleTwinBlocks venue={venue} phase={phase} total={total} />
-            </View>
-          );
-        })()}
-        <Text style={{ color: C.text, fontWeight: "800", fontSize: 15, lineHeight: 22 }}>{venueBattleSummary(venue)}</Text>
-        <Text style={{ color: C.muted, marginTop: SPACE.sm, lineHeight: 22, fontSize: 14 }}>
-          최소 {venue.minGoal}명이 모이면 공연이 확정되고, 정원 {venue.capacity}명까지 예매가 열립니다. 가장 많은 서포트를 받은{" "}
-          {genreKo(venue.slotGenre)} 아티스트가 무대를 잡고, 서포터에게 티켓이 발급됩니다.
-        </Text>
-      </View>
-
-      {!venue.winnerId ? (
-        <View style={{ flexDirection: "row", marginBottom: SPACE.md, gap: SPACE.sm }}>
-          <TouchableOpacity onPress={onInvite} style={{ flex: 1, backgroundColor: C.rival + "22", borderRadius: 14, paddingVertical: 14, alignItems: "center", borderWidth: 1, borderColor: C.rival + "44" }}>
-            <Text style={{ color: C.rival, fontWeight: "900" }}>아티스트 초대</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onApply} style={{ flex: 1, backgroundColor: C.surface, borderRadius: 14, paddingVertical: 14, alignItems: "center", borderWidth: 1, borderColor: C.border }}>
-            <Text style={{ color: C.accentSoft, fontWeight: "900" }}>배틀 지원</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
+      <BattleRulesExpandable />
+      <BattleVenueInfoExpandable venue={venue} onInvite={onInvite} onApply={onApply} />
 
       {venueInvites.length > 0 ? (
-        <View style={{ marginBottom: SPACE.md }}>
-          <SectionLabel>팬 초대</SectionLabel>
+        <View style={{ marginTop: SPACE.md, marginBottom: SPACE.sm }}>
           {venueInvites.map((inv) => (
-            <View key={inv.id} style={{ backgroundColor: C.surface, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.xs }}>
-              <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", marginBottom: SPACE.xs }}>
-                <Text style={{ color: C.text, fontWeight: "800", marginRight: SPACE.sm }}>{inv.profileId}</Text>
-                <GenrePill genre={inv.genre} />
-              </View>
-              <Text style={{ color: C.dim, fontSize: 11, fontWeight: "600" }}>Social / music profile · {inv.genre}</Text>
-              <Text style={{ color: C.muted, marginTop: 4 }}>{inv.note}</Text>
-            </View>
+            <Text key={inv.id} style={{ color: C.dim, fontSize: 12 }}>
+              초대: {inv.profileId}
+            </Text>
           ))}
         </View>
       ) : null}
-
-      {venueApplications.length > 0 ? (
-        <View style={{ marginBottom: SPACE.md }}>
-          <SectionLabel>지원 목록</SectionLabel>
-          {venueApplications.map((app) => (
-            <View key={app.id} style={{ backgroundColor: C.surface, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.xs }}>
-              <Text style={{ color: C.text, fontWeight: "800" }}>{app.artistName}</Text>
-              <Text style={{ color: C.muted, marginTop: 4 }}>{app.pitch}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
-      <SectionLabel>전체 순위</SectionLabel>
-      {sorted.map((artist, i) => (
-        <LeaderboardRow
-          key={artist.id}
-          artist={artist}
-          rank={i + 1}
-          maxSupporters={leader.supporters}
-          isWinner={venue.winnerId === artist.id}
-          isLeading={!venue.winnerId && i === 0}
-          isUserPick={userPickId === artist.id}
-          blockedByOtherPick={hasPick && userPickId !== artist.id && !venue.winnerId}
-          onPress={() => onOpenArtist(artist)}
-          onPick={() => onBackArtist(artist)}
-        />
-      ))}
 
       {hasPick && !venue.winnerId ? (
-        <View style={{ alignItems: "center", marginTop: SPACE.lg, marginBottom: SPACE.xl, paddingTop: SPACE.md }}>
-          <Text style={{ color: C.dim, fontSize: 12, fontWeight: "600" }}>선택을 취소하고 싶나요?</Text>
-          <TouchableOpacity onPress={onCancelPick} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }} style={{ marginTop: 6 }}>
+        <View style={{ alignItems: "center", marginTop: SPACE.md, marginBottom: SPACE.xl, paddingTop: SPACE.md }}>
+          <TouchableOpacity onPress={onCancelPick} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
             <Text style={{ color: C.dim, fontSize: 13, fontWeight: "600", textDecorationLine: "underline" }}>선택 취소</Text>
           </TouchableOpacity>
         </View>
@@ -2811,6 +3448,7 @@ function ArtistConfirmedScreen({
   artist,
   venue,
   isUserPick,
+  hasTicket,
   onBack,
   onClaimTicket,
   onInviteFriends,
@@ -2819,112 +3457,33 @@ function ArtistConfirmedScreen({
   artist: CompetingArtist;
   venue: VenueCompetition;
   isUserPick: boolean;
+  hasTicket: boolean;
   onBack: () => void;
   onClaimTicket: () => void;
   onInviteFriends: () => void;
   onViewSupporterRecord: () => void;
 }) {
-  const schedule = formatShowSchedule(venue);
-  const ticketStatus = ticketOpenStatusLabel(venue.countdown, isUserPick);
-
-  const scrollBody = (
-    <>
-      <ScreenHeader
-        title={artistConfirmedTitle(artist, venue)}
-        subtitle="이 공연은 예정된 게 아니라, 팬들이 만들어낸 것이다"
-        onBack={onBack}
-        eyebrow={artistConfirmedEyebrow(artist)}
-        titleSize={26}
-      />
-
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: SPACE.md }}>
-        <View style={{ backgroundColor: ROLE.fan.bg, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: ROLE.fan.border }}>
-          <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 11 }}>서울 팬 {artist.supporters}명이 만든 공연</Text>
-        </View>
-        <View style={{ backgroundColor: "#1e293b", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: C.border }}>
-          <Text style={{ color: C.gold, fontWeight: "900", fontSize: 11 }}>Founding fans가 만든 무대</Text>
-        </View>
-      </View>
-
-      <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: ROLE.fan.border }}>
-        <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 13, letterSpacing: 0.5 }}>공연 확정</Text>
-        <Text style={{ color: C.text, fontWeight: "900", fontSize: 22, marginTop: SPACE.xs }}>{venue.venueName}</Text>
-        <Text style={{ color: C.muted, marginTop: 4, fontSize: 16, fontWeight: "700" }}>{schedule}</Text>
-      </View>
-
-      <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
-        <Text style={{ color: C.text, fontWeight: "900", fontSize: 28, letterSpacing: -0.5 }}>{artist.supporters} founding fans</Text>
-        <Text style={{ color: C.muted, marginTop: SPACE.xs, fontSize: 15, fontWeight: "700" }}>목표 달성 100%</Text>
-        <Text style={{ color: ROLE.fan.primary, marginTop: 4, fontSize: 15, fontWeight: "800" }}>{ticketStatus}</Text>
-        <View style={{ height: 8, borderRadius: 999, backgroundColor: C.border, marginTop: SPACE.md, overflow: "hidden" }}>
-          <View style={{ height: "100%", width: "100%", backgroundColor: ROLE.fan.primary, borderRadius: 999 }} />
-        </View>
-      </View>
-
-      {isUserPick ? (
-        <View style={{ backgroundColor: "#13231a", borderRadius: 20, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: ROLE.fan.border }}>
-          <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 14 }}>예치금이 티켓으로 전환됐어요</Text>
-          <Text style={{ color: C.muted, marginTop: 6, lineHeight: 22, fontWeight: "600" }}>
-            {BACKING_PRICE} 예치 → {venue.venueName} 입장권. 우리가 불렀고, 이제 같이 완성하면 됩니다.
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md }}>
-        <SectionLabel>감정적 보상</SectionLabel>
-        {isUserPick ? (
-          <Text style={{ color: ROLE.fan.soft, lineHeight: 26, fontSize: 15, fontWeight: "700", marginBottom: SPACE.sm }}>
-            당신의 요청이 공연이 됐습니다
-          </Text>
-        ) : null}
-        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· 이름이 서포터 월에 기록됩니다</Text>
-        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· 이 공연은 관객이 먼저 만든 무대입니다</Text>
-        <Text style={{ color: "#cbd5e1", lineHeight: 26, marginTop: SPACE.sm }}>
-          · 티켓은 다른 데서도 살 수 있지만, “이 공연을 내가 만들었다”는 지위는 fanstage만 줍니다
-        </Text>
-      </View>
-
-      <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md }}>
-        <SectionLabel>소개</SectionLabel>
-        <Text style={{ color: "#cbd5e1", lineHeight: 26, fontSize: 15 }}>{artist.story}</Text>
-      </View>
-
-      <TouchableOpacity onPress={onViewSupporterRecord} style={{ alignItems: "center", paddingVertical: SPACE.md, marginBottom: SPACE.xl }}>
-        <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 14 }}>내 서포터 기록 보기 →</Text>
-      </TouchableOpacity>
-    </>
-  );
+  const stage = getShowPageStage(venue, artist, hasTicket);
+  const demand = buildDemandSurfaceCopy(stage, artist, venue, isUserPick);
+  const primaryLabel = getDemandPrimaryAction(stage, artist, isUserPick, hasTicket);
 
   return (
-    <View style={{ flex: 1 }}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 180 }} showsVerticalScrollIndicator={false}>
-        {scrollBody}
-      </ScrollView>
-      <View
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          paddingHorizontal: SPACE.md,
-          paddingTop: SPACE.md,
-          paddingBottom: SPACE.lg,
-          backgroundColor: C.bg,
-          borderTopWidth: 1,
-          borderTopColor: C.border,
-        }}
-      >
-        <TouchableOpacity onPress={onClaimTicket} style={{ backgroundColor: C.accent, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}>
-          <Text style={{ color: C.ink, fontWeight: "900", fontSize: 17 }}>내 티켓 받기</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={onInviteFriends}
-          style={{ marginTop: SPACE.sm, borderRadius: 18, paddingVertical: 16, alignItems: "center", borderWidth: 1, borderColor: C.border, backgroundColor: C.card }}
-        >
-          <Text style={{ color: C.text, fontWeight: "800", fontSize: 16 }}>친구 초대하기</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    <ShowPageShell
+      bottom={<ShowBottomActionBar primaryLabel={primaryLabel} onPrimary={onClaimTicket} />}
+    >
+      <Text style={{ color: C.rival, fontWeight: "800", fontSize: 11, marginBottom: SPACE.md }}>{artistConfirmedEyebrow(artist)}</Text>
+
+      <DemandSurfaceBlock copy={demand} artist={artist} venue={venue} stage={stage} />
+      <FanCreditCard artist={artist} isUserPick={isUserPick} />
+      <ShowStoryCard artist={artist} venue={venue} />
+
+      <TouchableOpacity onPress={onInviteFriends} style={{ alignItems: "center", paddingVertical: SPACE.sm }}>
+        <Text style={{ color: C.dim, fontWeight: "700", fontSize: 13 }}>친구 초대하기</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onViewSupporterRecord} style={{ alignItems: "center", paddingBottom: SPACE.md }}>
+        <Text style={{ color: C.dim, fontWeight: "700", fontSize: 13 }}>내 서포터 기록 보기</Text>
+      </TouchableOpacity>
+    </ShowPageShell>
   );
 }
 
@@ -2932,11 +3491,10 @@ function ArtistDetailScreen({
   artist,
   venue,
   isUserPick,
-  statusLabel,
+  hasTicket,
   onBack,
   onBackArtist,
   onCancelPick,
-  onViewTicket,
   onClaimTicket,
   onInviteFriends,
   onViewSupporterRecord,
@@ -2944,11 +3502,10 @@ function ArtistDetailScreen({
   artist: CompetingArtist;
   venue: VenueCompetition;
   isUserPick: boolean;
-  statusLabel: string;
+  hasTicket: boolean;
   onBack: () => void;
   onBackArtist: () => void;
   onCancelPick?: () => void;
-  onViewTicket?: () => void;
   onClaimTicket?: () => void;
   onInviteFriends?: () => void;
   onViewSupporterRecord?: () => void;
@@ -2960,6 +3517,7 @@ function ArtistDetailScreen({
         artist={artist}
         venue={venue}
         isUserPick={isUserPick}
+        hasTicket={hasTicket}
         onBack={onBack}
         onClaimTicket={onClaimTicket}
         onInviteFriends={onInviteFriends}
@@ -2968,147 +3526,48 @@ function ArtistDetailScreen({
     );
   }
 
-  const goal = venue.minGoal;
-  const { remaining, probability } = campaignPledgeStats(artist.supporters, goal);
-  const pledgeProgress = Math.min(1, artist.supporters / Math.max(goal, 1));
-  const showDepositCta = !venue.winnerId && !isUserPick;
+  const stage = getShowPageStage(venue, artist, hasTicket);
+  const demand = buildDemandSurfaceCopy(stage, artist, venue, isUserPick);
+  const primaryLabel = getDemandPrimaryAction(stage, artist, isUserPick, hasTicket);
+  const inviteAction = stage === "almost_there" || (isUserPick && stage === "recruiting");
+  const onPrimary =
+    inviteAction && onInviteFriends ? onInviteFriends : onBackArtist;
+  const showBottomBar = !isUserPick || inviteAction || stage === "recruiting";
 
-  const scrollBody = (
-    <>
-      <ScreenHeader
-        title={artistCampaignTitle(artist, venue)}
-        subtitle={`${artist.genre} · ${venue.district} · ${venue.slotLabel}`}
-        onBack={onBack}
-        eyebrow={artistCampaignEyebrow(artist)}
-        titleSize={26}
-      />
+  return (
+    <ShowPageShell
+      bottom={
+        showBottomBar ? (
+          <ShowBottomActionBar
+            primaryLabel={primaryLabel}
+            onPrimary={onPrimary}
+            hint={!inviteAction ? "성사되면 티켓으로 전환 · 실패하면 환불" : undefined}
+          />
+        ) : undefined
+      }
+    >
+      <Text style={{ color: C.rival, fontWeight: "800", fontSize: 11, marginBottom: SPACE.md }}>{artistCampaignEyebrow(artist)}</Text>
 
-      <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: SPACE.md }}>
-          <View
-            style={{
-              backgroundColor: isWinner ? ROLE.fan.bg : "#13231a",
-              borderRadius: 999,
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              marginRight: SPACE.sm,
-              marginBottom: SPACE.xs,
-              borderWidth: 1,
-              borderColor: isWinner ? ROLE.fan.border : ROLE.fan.border,
-            }}
-          >
-            <Text style={{ color: isWinner ? ROLE.fan.primary : ROLE.fan.soft, fontWeight: "900", fontSize: 11 }}>{statusLabel}</Text>
-          </View>
-          {isUserPick ? (
-            <View style={{ backgroundColor: "#1e3a5f", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, marginBottom: SPACE.xs }}>
-              <Text style={{ color: "#7dd3fc", fontWeight: "900", fontSize: 11 }}>내가 부르는 중</Text>
-            </View>
-          ) : null}
-        </View>
+      <DemandSurfaceBlock copy={demand} artist={artist} venue={venue} stage={stage} />
 
-        <Text style={{ color: C.text, fontWeight: "900", fontSize: 28, letterSpacing: -0.5 }}>{artist.supporters}명이 약속함</Text>
-        <Text style={{ color: C.muted, marginTop: SPACE.xs, fontSize: 15, fontWeight: "700" }}>
-          목표 {goal}명까지 {remaining}명
-        </Text>
-        <Text style={{ color: ROLE.fan.primary, marginTop: 4, fontSize: 15, fontWeight: "800" }}>성사 가능성 {probability}%</Text>
-
-        <View style={{ height: 8, borderRadius: 999, backgroundColor: C.border, marginTop: SPACE.md, overflow: "hidden" }}>
-          <View style={{ height: "100%", width: `${pledgeProgress * 100}%`, backgroundColor: ROLE.fan.primary, borderRadius: 999 }} />
-        </View>
-
-        <Text style={{ color: C.dim, marginTop: SPACE.md, fontSize: 12, fontWeight: "600", lineHeight: 18 }}>
-          아직 없는 공연입니다. 약속이 모이면 {venue.venueName} 무대가 열립니다.
-        </Text>
-      </View>
-
-      <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md }}>
-        <SectionLabel>소개</SectionLabel>
-        <Text style={{ color: "#cbd5e1", lineHeight: 26, fontSize: 15 }}>{artist.story}</Text>
-      </View>
-
-      <View style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md }}>
-        <SectionLabel>왜 이 무대여야 하나</SectionLabel>
-        <View style={{ flexDirection: "row", alignItems: "center", marginTop: SPACE.sm }}>
-          <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: C.border, alignItems: "center", justifyContent: "center", marginRight: SPACE.md }}>
-            <Text style={{ fontSize: 20, color: ROLE.fan.primary }}>▶</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: C.text, fontWeight: "900", fontSize: 17 }}>
-              {artist.latestTrack.title} {artist.latestTrack.duration}
-            </Text>
-            <Text style={{ color: C.muted, marginTop: 6, lineHeight: 20 }}>
-              이 노래를 {venue.venueName}에서 듣고 싶은 사람들: {artist.supporters}명
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md }}>
-        <SectionLabel>성사되면</SectionLabel>
-        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· {venue.venueName} {artist.name} 공연 확정</Text>
-        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· 예치금은 입장권으로 전환</Text>
-        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· 실패 시 전액 환불</Text>
-        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· 초기 서포터 이름 기록</Text>
-      </View>
-
-      {!venue.winnerId && isUserPick ? (
-        <Text style={{ color: ROLE.fan.soft, fontWeight: "700", fontSize: 14, textAlign: "center", marginBottom: SPACE.sm }}>
-          내가 누르면 이 공연이 가까워집니다 — 지금 {venue.venueName} 무대를 부르는 중이에요
-        </Text>
+      {isUserPick && stage !== "almost_there" ? (
+        <ShowCard>
+          <Text style={{ color: ROLE.fan.soft, fontWeight: "700", fontSize: 14, lineHeight: 22 }}>
+            예치 완료 · {Math.max(0, demand.goal - demand.current)}명만 더 모이면 무대가 열립니다
+          </Text>
+        </ShowCard>
       ) : null}
-      {onViewTicket ? (
-        <TouchableOpacity onPress={onViewTicket} style={{ marginTop: SPACE.sm, paddingVertical: SPACE.md, alignItems: "center" }}>
-          <Text style={{ color: C.accentSoft, fontWeight: "800" }}>입장권 QR 보기 →</Text>
-        </TouchableOpacity>
-      ) : null}
-      {isUserPick && !venue.winnerId && onCancelPick ? (
-        <View style={{ alignItems: "center", marginTop: SPACE.md, marginBottom: SPACE.xl, paddingTop: SPACE.md }}>
-          <Text style={{ color: C.dim, fontSize: 12, fontWeight: "600" }}>예치를 취소하고 싶나요?</Text>
-          <TouchableOpacity onPress={onCancelPick} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }} style={{ marginTop: 6 }}>
+
+      <ShowStoryCard artist={artist} venue={venue} />
+
+      {isUserPick && onCancelPick ? (
+        <View style={{ alignItems: "center", paddingVertical: SPACE.md }}>
+          <TouchableOpacity onPress={onCancelPick} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
             <Text style={{ color: C.dim, fontSize: 13, fontWeight: "600", textDecorationLine: "underline" }}>예치 취소</Text>
           </TouchableOpacity>
         </View>
       ) : null}
-    </>
-  );
-
-  if (!showDepositCta) {
-    return (
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        {scrollBody}
-      </ScrollView>
-    );
-  }
-
-  return (
-    <View style={{ flex: 1 }}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 160 }} showsVerticalScrollIndicator={false}>
-        {scrollBody}
-      </ScrollView>
-      <View
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          paddingHorizontal: SPACE.md,
-          paddingTop: SPACE.md,
-          paddingBottom: SPACE.lg,
-          backgroundColor: C.bg,
-          borderTopWidth: 1,
-          borderTopColor: C.border,
-        }}
-      >
-        <TouchableOpacity onPress={onBackArtist} style={{ backgroundColor: C.accent, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}>
-          <Text style={{ color: C.ink, fontWeight: "900", fontSize: 17 }}>
-            {BACKING_PRICE} 예치하고 {artist.name} 부르기
-          </Text>
-        </TouchableOpacity>
-        <Text style={{ color: C.muted, textAlign: "center", marginTop: SPACE.sm, fontSize: 13, fontWeight: "600" }}>
-          성사되면 티켓으로 전환 · 실패하면 환불
-        </Text>
-      </View>
-    </View>
+    </ShowPageShell>
   );
 }
 
@@ -3232,19 +3691,29 @@ function TicketStatusPill({ label, color, bg }: { label: string; color: string; 
   );
 }
 
-function TicketLifecycleSummary({ live, ticket, refund }: { live: number; ticket: number; refund: number }) {
+function TicketLifecycleSummary({
+  converting,
+  ticket,
+  past,
+  refund,
+}: {
+  converting: number;
+  ticket: number;
+  past: number;
+  refund: number;
+}) {
   const steps = [
-    { label: "참가", value: live + ticket + refund, color: ROLE.fan.primary },
-    { label: "성사 대기", value: live, color: C.gold },
-    { label: "티켓 전환", value: ticket, color: ROLE.fan.primary },
-    { label: "환불", value: refund, color: C.muted },
+    { label: "전환 중", value: converting, color: C.gold },
+    { label: "티켓 준비", value: ticket, color: C.accent },
+    { label: "지난 공연", value: past, color: C.muted },
+    { label: "환불", value: refund, color: "#94a3b8" },
   ];
 
   return (
     <View style={{ backgroundColor: C.surface, borderRadius: 20, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
-      <Text style={{ color: C.text, fontWeight: "900", fontSize: 16 }}>내 선택의 진행 흐름</Text>
+      <Text style={{ color: C.text, fontWeight: "900", fontSize: 16 }}>내 티켓 흐름</Text>
       <Text style={{ color: C.muted, marginTop: 4, fontSize: 12, lineHeight: 18 }}>
-        예치한 선택은 공연 성사 여부에 따라 티켓 또는 환불로 자동 정리됩니다.
+        성사된 무대는 티켓으로, 진행 중인 무대는 Venues에서 계속 밀어 주세요.
       </Text>
       <View style={{ flexDirection: "row", marginTop: SPACE.md }}>
         {steps.map((step, index) => (
@@ -3261,20 +3730,22 @@ function TicketLifecycleSummary({ live, ticket, refund }: { live: number; ticket
 }
 
 function TicketsScreen({
-  unlocked,
-  pending,
+  venues,
+  venueBackings,
+  wonTickets,
   refunded,
   onOpenArtistFromTicket,
-  onOpenArtistFromPick,
+  onOpenArtistFromConverting,
   onOpenArtistFromRefund,
   onOpenTicketQr,
   onExploreBattles,
 }: {
-  unlocked: Ticket[];
-  pending: PendingPick[];
+  venues: VenueCompetition[];
+  venueBackings: Record<string, string>;
+  wonTickets: Ticket[];
   refunded: RefundedPick[];
   onOpenArtistFromTicket: (t: Ticket) => void;
-  onOpenArtistFromPick: (p: PendingPick) => void;
+  onOpenArtistFromConverting: (venue: VenueCompetition, artist: CompetingArtist) => void;
   onOpenArtistFromRefund: (r: RefundedPick) => void;
   onOpenTicketQr: (t: Ticket) => void;
   onExploreBattles: () => void;
@@ -3282,31 +3753,43 @@ function TicketsScreen({
   const [filter, setFilter] = useState<TicketWalletFilter>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const counts = { live: pending.length, ticket: unlocked.length, refund: refunded.length };
-  const total = counts.live + counts.ticket + counts.refund;
+  const wallet = useMemo(
+    () => buildTicketWalletEntries(venues, venueBackings, wonTickets),
+    [venues, venueBackings, wonTickets]
+  );
+
+  const counts = {
+    converting: wallet.converting.length,
+    ticket: wallet.ready.length,
+    past: wallet.past.length,
+    refund: refunded.length,
+  };
+  const total = counts.converting + counts.ticket + counts.past + counts.refund;
 
   const filters: { id: TicketWalletFilter; label: string; count: number; color: string; bg: string }[] = [
     { id: "all", label: "전체", count: total, color: C.text, bg: C.surface },
-    { id: "live", label: "진행 중", count: counts.live, color: C.gold, bg: "#422006" },
-    { id: "ticket", label: "티켓", count: counts.ticket, color: C.accent, bg: "#14532d" },
+    { id: "converting", label: "전환 중", count: counts.converting, color: C.gold, bg: "#422006" },
+    { id: "ticket", label: "티켓 준비", count: counts.ticket, color: C.accent, bg: "#14532d" },
+    { id: "past", label: "지난 공연", count: counts.past, color: C.muted, bg: "#1e293b" },
     { id: "refund", label: "환불", count: counts.refund, color: "#94a3b8", bg: "#1e293b" },
   ];
 
-  const showLive = filter === "all" || filter === "live";
+  const showConverting = filter === "all" || filter === "converting";
   const showTicket = filter === "all" || filter === "ticket";
+  const showPast = filter === "all" || filter === "past";
   const showRefund = filter === "all" || filter === "refund";
 
   const toggleExpand = (id: string) => setExpandedId((prev) => (prev === id ? null : id));
 
   return (
     <>
-      <ScreenHeader title="내 티켓" subtitle="참가한 무대가 티켓으로 바뀌는 과정을 한곳에서 봅니다." />
+      <ScreenHeader title="내 티켓" subtitle="성사된 무대와 입장권을 확인하세요" />
 
       <View style={{ flexDirection: "row", marginBottom: SPACE.md, gap: SPACE.xs }}>
         {[
-          { label: "진행 중", value: counts.live, color: C.gold },
-          { label: "티켓", value: counts.ticket, color: C.accent },
-          { label: "환불", value: counts.refund, color: C.muted },
+          { label: "전환 중", value: counts.converting, color: C.gold },
+          { label: "티켓 준비", value: counts.ticket, color: C.accent },
+          { label: "지난 공연", value: counts.past, color: C.muted },
         ].map((stat) => (
           <View key={stat.label} style={{ flex: 1, backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, borderWidth: 1, borderColor: C.border }}>
             <Text style={{ color: C.dim, fontSize: 10, fontWeight: "700" }}>{stat.label}</Text>
@@ -3315,7 +3798,12 @@ function TicketsScreen({
         ))}
       </View>
 
-      <TicketLifecycleSummary live={counts.live} ticket={counts.ticket} refund={counts.refund} />
+      <TicketLifecycleSummary
+        converting={counts.converting}
+        ticket={counts.ticket}
+        past={counts.past}
+        refund={counts.refund}
+      />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: SPACE.lg, flexGrow: 0 }}>
         {filters.map((f) => {
@@ -3356,49 +3844,45 @@ function TicketsScreen({
         </View>
       ) : null}
 
-      {showLive && pending.length > 0 ? (
+      {showConverting && wallet.converting.length > 0 ? (
         <>
-          <SectionLabel>진행 중 · 예치 유지</SectionLabel>
+          <SectionLabel>성사 완료 · 티켓 전환 중</SectionLabel>
           <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 20, fontSize: 13 }}>
-            아직 성사 중인 무대예요. 마감 전까지 {BACKING_PRICE} 예치가 유지됩니다.
+            무대는 확정됐어요. 예치금이 입장권으로 바뀌는 중입니다.
           </Text>
-          {pending.map((p) => {
-            const open = expandedId === p.id;
-            const ms = momentumStyle(p.momentum);
-            const progress = p.supporterGap === 0 ? 1 : Math.max(0.15, 1 - p.supporterGap / 40);
+          {wallet.converting.map((entry) => {
+            const open = expandedId === entry.id;
+            const { venue, artist } = entry;
             return (
               <TouchableOpacity
-                key={p.id}
-                onPress={() => toggleExpand(p.id)}
+                key={entry.id}
+                onPress={() => toggleExpand(entry.id)}
                 activeOpacity={0.92}
                 style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.gold + "44" }}
               >
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <TicketStatusPill label="IN PROGRESS" color={C.gold} bg="#422006" />
-                  <Text style={{ color: C.rival, fontWeight: "900", fontSize: 13 }}>{p.countdown}</Text>
+                  <TicketStatusPill label="티켓 전환 중" color={C.gold} bg="#422006" />
+                  <Text style={{ color: C.rival, fontWeight: "900", fontSize: 13 }}>{formatCountdown(venue.countdown)}</Text>
                 </View>
-                <Text style={{ color: C.text, fontSize: 20, fontWeight: "900", marginTop: SPACE.sm }}>{p.artist}</Text>
-                <Text style={{ color: C.muted }}>{p.venue} · {p.rank}</Text>
-                <View style={{ flexDirection: "row", alignItems: "center", marginTop: SPACE.sm, flexWrap: "wrap" }}>
-                  <View style={{ backgroundColor: ms.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, marginRight: SPACE.sm }}>
-                    <Text style={{ color: ms.color, fontWeight: "800", fontSize: 11 }}>{momentumKo(p.momentum)}</Text>
-                  </View>
-                  <Text style={{ color: C.dim, fontSize: 12, fontWeight: "600" }}>{p.rank}</Text>
-                </View>
-                <View style={{ height: 6, backgroundColor: C.border, borderRadius: 999, marginTop: SPACE.sm, overflow: "hidden" }}>
-                  <View style={{ width: `${progress * 100}%`, height: "100%", backgroundColor: C.gold }} />
-                </View>
+                <Text style={{ color: C.text, fontSize: 20, fontWeight: "900", marginTop: SPACE.sm }}>{artist.name}</Text>
+                <Text style={{ color: C.muted }}>{venue.venueName} · {venue.district}</Text>
+                <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 12, lineHeight: 18 }}>
+                  {ticketOpenStatusLabel(venue.countdown, true)}
+                </Text>
                 {open ? (
                   <View style={{ marginTop: SPACE.md, paddingTop: SPACE.md, borderTopWidth: 1, borderTopColor: C.border }}>
                     <Text style={{ color: C.muted, lineHeight: 20, marginBottom: SPACE.sm }}>
-                      {p.artist}가 성사되면 예치금은 티켓으로 전환됩니다. 성사되지 않으면 {BACKING_PRICE}는 자동 환불돼요.
+                      성사가 끝났어요. 티켓이 열리면 알림과 함께 QR 입장권을 받을 수 있어요.
                     </Text>
-                    <TouchableOpacity onPress={() => onOpenArtistFromPick(p)} style={{ backgroundColor: ROLE.fan.bg, borderRadius: 12, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: ROLE.fan.border }}>
-                      <Text style={{ color: ROLE.fan.primary, fontWeight: "900" }}>진행 상황 보기 →</Text>
+                    <TouchableOpacity
+                      onPress={() => onOpenArtistFromConverting(venue, artist)}
+                      style={{ backgroundColor: ROLE.fan.bg, borderRadius: 12, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: ROLE.fan.border }}
+                    >
+                      <Text style={{ color: ROLE.fan.primary, fontWeight: "900" }}>내 티켓 받기 →</Text>
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 12 }}>눌러서 자세히 보기</Text>
+                  <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 12 }}>눌러서 전환 상태 보기</Text>
                 )}
               </TouchableOpacity>
             );
@@ -3406,17 +3890,17 @@ function TicketsScreen({
         </>
       ) : null}
 
-      {showLive && pending.length === 0 && filter === "live" ? (
-        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>진행 중인 선택이 없어요. 열려 있는 무대에서 팀을 선택해 보세요.</Text>
+      {showConverting && wallet.converting.length === 0 && filter === "converting" ? (
+        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>티켓 전환 중인 무대가 없어요.</Text>
       ) : null}
 
-      {showTicket && unlocked.length > 0 ? (
+      {showTicket && wallet.ready.length > 0 ? (
         <>
-          <SectionLabel>티켓 · 예치금 전환 완료</SectionLabel>
+          <SectionLabel>티켓 준비</SectionLabel>
           <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 20, fontSize: 13 }}>
-            선택한 팀이 무대를 얻었어요. 현장에서는 QR 입장권을 보여주면 됩니다.
+            입장권이 준비됐어요. 공연 당일 QR을 보여주세요.
           </Text>
-          {unlocked.map((t) => {
+          {wallet.ready.map((t) => {
             const open = expandedId === `ticket-${t.id}`;
             return (
               <TouchableOpacity
@@ -3459,8 +3943,44 @@ function TicketsScreen({
         </>
       ) : null}
 
-      {showTicket && unlocked.length === 0 && filter === "ticket" ? (
-        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>아직 전환된 티켓이 없어요. 선택한 팀이 성사되면 여기에 나타납니다.</Text>
+      {showTicket && wallet.ready.length === 0 && filter === "ticket" ? (
+        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>준비된 티켓이 없어요. 성사된 무대는 전환 후 여기에 나타납니다.</Text>
+      ) : null}
+
+      {showPast && wallet.past.length > 0 ? (
+        <>
+          <SectionLabel>입장 완료 · 지난 공연</SectionLabel>
+          <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 20, fontSize: 13 }}>
+            이미 끝난 무대 기록이에요. Profile에서도 다시 볼 수 있어요.
+          </Text>
+          {wallet.past.map((t) => {
+            const open = expandedId === `past-${t.id}`;
+            return (
+              <TouchableOpacity
+                key={t.id}
+                onPress={() => toggleExpand(`past-${t.id}`)}
+                activeOpacity={0.92}
+                style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border, opacity: 0.92 }}
+              >
+                <TicketStatusPill label="지난 공연" color={C.muted} bg="#1e293b" />
+                <Text style={{ color: C.text, fontSize: 18, fontWeight: "900", marginTop: SPACE.sm }}>{t.artist}</Text>
+                <Text style={{ color: C.muted }}>{t.venue}</Text>
+                <Text style={{ color: C.dim, marginTop: SPACE.xs, fontSize: 12 }}>{t.date}</Text>
+                {open ? (
+                  <View style={{ marginTop: SPACE.md, paddingTop: SPACE.md, borderTopWidth: 1, borderTopColor: C.border }}>
+                    <TouchableOpacity onPress={() => onOpenArtistFromTicket(t)} style={{ paddingVertical: 10, alignItems: "center" }}>
+                      <Text style={{ color: C.muted, fontWeight: "800" }}>공연 기록 보기 →</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            );
+          })}
+        </>
+      ) : null}
+
+      {showPast && wallet.past.length === 0 && filter === "past" ? (
+        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>지난 공연 기록이 없어요.</Text>
       ) : null}
 
       {showRefund && refunded.length > 0 ? (
@@ -4894,7 +5414,6 @@ function AppContent() {
     );
   };
 
-  const activePicks = useMemo(() => buildActivePicks(venues, venueBackings), [venues, venueBackings]);
   const refundedPicks = useMemo(() => buildRefundedPicks(venues, venueBackings), [venues, venueBackings]);
 
   const liveVenue = useMemo(() => findLiveVenue(venues, selectedVenue), [venues, selectedVenue]);
@@ -5225,11 +5744,10 @@ function AppContent() {
           artist={liveArtist}
           venue={liveVenue}
           isUserPick={isUserPick}
-          statusLabel={getArtistStatusLabel(liveVenue, liveArtist, venueBackings[liveVenue.id])}
+          hasTicket={!!matchedTicket}
           onBack={closeArtistDetail}
           onBackArtist={() => tryBackArtist(liveVenue, liveArtist)}
           onCancelPick={isUserPick && !liveVenue.winnerId ? () => cancelVenuePick(liveVenue) : undefined}
-          onViewTicket={matchedTicket ? () => openTicketQr(matchedTicket) : undefined}
           onClaimTicket={() => {
             if (matchedTicket) {
               openTicketQr(matchedTicket);
@@ -5277,11 +5795,12 @@ function AppContent() {
       case "tickets":
         return (
           <TicketsScreen
-            unlocked={wonTickets}
-            pending={activePicks}
+            venues={venues}
+            venueBackings={venueBackings}
+            wonTickets={wonTickets}
             refunded={refundedPicks}
             onOpenArtistFromTicket={openArtistFromTicket}
-            onOpenArtistFromPick={openArtistFromPick}
+            onOpenArtistFromConverting={(v, a) => openArtist(v, a, "tickets")}
             onOpenArtistFromRefund={openArtistFromRefund}
             onOpenTicketQr={openTicketQr}
             onExploreBattles={() => setActiveTab("discover")}
@@ -5329,6 +5848,9 @@ function AppContent() {
             onBackArtist={tryBackArtist}
             onOpenTicketQr={openTicketQr}
             onQrPending={() => showToast("티켓이 발급되면 입장 QR이 열려요")}
+            onInviteFriend={(v, a) =>
+              showToast(`친구 초대 링크 복사됨 · ${a.name} @ ${v.venueName} — 우리가 만든 공연이에요`)
+            }
           />
         );
     }
@@ -5337,6 +5859,12 @@ function AppContent() {
   const hideNav = overlay !== null;
 
   const overlayContent = renderOverlayContent();
+  const overlayUsesSafeBack = overlay === "venueDetail" || overlay === "artistDetail";
+
+  const handleOverlaySafeBack = () => {
+    if (overlay === "artistDetail") closeArtistDetail();
+    else closeOverlay();
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
@@ -5345,12 +5873,17 @@ function AppContent() {
       </ScrollView>
       {overlayContent ? (
         <View style={SCREEN_OVERLAY}>
+          {overlayUsesSafeBack ? <OverlayBackHeader onPress={handleOverlaySafeBack} /> : null}
           {overlay === "artistDetail" ? (
-            overlayContent
+            <View style={{ flex: 1 }}>{overlayContent}</View>
           ) : (
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 120 }}
+              contentContainerStyle={{
+                paddingHorizontal: SPACE.md,
+                paddingTop: overlayUsesSafeBack ? 32 : SPACE.sm,
+                paddingBottom: 120,
+              }}
               showsVerticalScrollIndicator={false}
             >
               {overlayContent}

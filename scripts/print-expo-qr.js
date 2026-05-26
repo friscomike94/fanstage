@@ -21,3 +21,5 @@ require("qrcode-terminal").generate(url, { small: true });
 console.log(`\nExpo Go URL: ${url}`);
 console.log("Metro: http://localhost:" + port);
 console.log("(npm start 실행 중이어야 합니다. 같은 Wi-Fi에서 스캔하세요.)");
+console.log("앱 리로드: npm run reload  (또는 npm run r)");
+console.log("주의: 셸에서 r 만 치면 직전 명령(QR) 반복 — npm run r 을 쓰세요");

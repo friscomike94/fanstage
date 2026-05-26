@@ -5,6 +5,8 @@
   "scripts": {
     "start": "expo start",
     "qr": "node scripts/print-expo-qr.js",
+    "reload": "node scripts/reload-metro.js",
+    "r": "node scripts/reload-metro.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web"

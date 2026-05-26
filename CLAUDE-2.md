@@ -24,11 +24,19 @@ npm start
 
 # 2) 다른 터미널에서 QR + URL (LAN IP 자동)
 npm run qr
+
+# 3) 앱 리로드 (셸에서 r 단독 입력 금지)
+npm run reload
+# 또는
+npm run r
 ```
 
 - 실기기: **Expo Go**, PC와 **같은 Wi‑Fi**
 - `npm run qr` 출력의 `exp://…:8081` 스캔
-- 터미널에서 `r` 리로드, `m` 개발 메뉴
+- **리로드:** `npm run reload` / `npm run r` (App.tsx touch → Metro 재번들)
+- `npm start`가 돌아가는 **그 터미널**에서 `r`도 가능
+- 셸에서 `r`만 치면 zsh **직전 명령 반복** (QR만 다시 나옴) — `npm run r` 사용
+- `npm start` 터미널: `m` 개발 메뉴
 - 시뮬레이터 `simctl` 오류는 Xcode 미설치 시 흔함 → 실기기 테스트로 충분
 
 ## Codex ↔ Claude 파이프라인
