@@ -10,6 +10,7 @@ import {
   ImageBackground,
   Animated,
   Easing,
+  AppState,
   useWindowDimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
@@ -260,6 +261,19 @@ function venueParticipatingCardMetric(total: number, minGoal: number, capacity: 
   if (phase === "pre_min") return `${total} / ${minGoal}명 · ${toMin}명 남음`;
   if (phase === "sold_out") return `${capacity} / ${capacity}명 · 매진`;
   return `${total} / ${capacity}명 · 잔여 ${remaining}석`;
+}
+
+function participationStageLabel(phase: VenueDemandPhase, hasTicket: boolean) {
+  if (hasTicket) return "성사 완료 · 티켓 준비";
+  if (phase === "pre_min") return "성사 대기 중";
+  if (phase === "sold_out") return "입장 준비";
+  return "공연 확정 · 티켓 전환 중";
+}
+
+function participationCardCtaLabel(phase: VenueDemandPhase, hasTicket: boolean) {
+  if (hasTicket) return "티켓 받기";
+  if (phase === "pre_min") return "진행 보기";
+  return "전환 상태 보기";
 }
 
 const VENUE_POSTER_URI: Record<string, string> = {
@@ -647,14 +661,15 @@ const INITIAL_VENUES: VenueCompetition[] = [
     district: "마포",
     address: "서울 마포구 와우산로 19",
     capacity: 450,
-    slotLabel: "금요일 헤드라인 · 20:00",
-    slotDate: "6월 20일 (금)",
-    bookingCloseDate: "6월 18일 (수)",
+    slotLabel: "헤드라인 · 19:30",
+    slotDate: "6월 14일 (금)",
+    bookingCloseDate: "6월 12일 (수)",
     bookingCloseTime: "23:59",
-    countdown: { days: 2, hours: 14, minutes: 32 },
+    countdown: { days: 3, hours: 0, minutes: 0 },
     minGoal: 150,
     slotGenre: "Indie",
-    slotsOpen: 2,
+    slotsOpen: 0,
+    winnerId: "minu",
     artists: [
       {
         id: "minu",
@@ -663,7 +678,7 @@ const INITIAL_VENUES: VenueCompetition[] = [
         supporters: 94,
         tagline: "마포 감성, 다같이 부르는 후렴",
         story:
-          "새벽의 식당, 마지막 지하철, 오래 미룬 고백을 노래하는 인디 록 아티스트. 지금 서울 94명이 롤링홀 무대를 부르고 있다.",
+          "새벽의 식당, 마지막 지하철, 오래 미룬 고백을 노래하는 인디 록 아티스트. 이 공연은 예정된 게 아니라, 서울 팬 94명이 먼저 만들어냈습니다.",
         latestTrack: { title: "위성 기도", duration: "4:08" },
       },
       {
@@ -1081,6 +1096,9 @@ function seedTicketWalletState(): {
     if (v.id === "modeci") {
       return { ...base, winnerId: "neon", slotsOpen: 0, countdown: { days: 0, hours: 0, minutes: 0 } };
     }
+    if (v.id === "rolling") {
+      return { ...base, winnerId: "minu", slotsOpen: 0, countdown: { days: 3, hours: 0, minutes: 0 } };
+    }
     return base;
   });
   const venueBackings: Record<string, string> = {
@@ -1090,7 +1108,9 @@ function seedTicketWalletState(): {
   };
   const modeci = venues.find((v) => v.id === "modeci")!;
   const neon = modeci.artists.find((a) => a.id === "neon")!;
-  const wonTickets = [createWinnerTicket(modeci, neon)];
+  const rolling = venues.find((v) => v.id === "rolling")!;
+  const minu = rolling.artists.find((a) => a.id === "minu")!;
+  const wonTickets = [createWinnerTicket(modeci, neon), createWinnerTicket(rolling, minu)];
   return { venues, venueBackings, wonTickets };
 }
 
@@ -1246,8 +1266,23 @@ function artistCampaignEyebrow(artist: CompetingArtist) {
   return `서울이 ${artist.name}를 부르는 중`;
 }
 
+function artistConfirmedEyebrow(artist: CompetingArtist) {
+  return `서울이 ${artist.name}를 불렀습니다`;
+}
+
+function artistConfirmedTitle(artist: CompetingArtist, venue: VenueCompetition) {
+  return `${artist.name} @ ${venue.venueName} 확정`;
+}
+
 function artistCampaignTitle(artist: CompetingArtist, venue: VenueCompetition) {
   return `${artist.name} @ ${venue.venueName} 만들기`;
+}
+
+function ticketOpenStatusLabel(countdown: VenueCompetition["countdown"], isUserPick: boolean) {
+  if (isUserPick) return "입장권 전환 가능";
+  if (countdown.days > 0) return `티켓 오픈 D-${countdown.days}`;
+  if (countdown.hours > 0 || countdown.minutes > 0) return "티켓 오픈 임박";
+  return "입장권 전환 가능";
 }
 
 function venueBattleSummary(venue: VenueCompetition) {
@@ -1588,6 +1623,24 @@ function HeroHomeSlide() {
     p.muted = true;
     p.play();
   });
+
+  const restartHeroVideo = useCallback(() => {
+    player.muted = true;
+    player.loop = true;
+    player.play();
+  }, [player]);
+
+  useEffect(() => {
+    restartHeroVideo();
+    const resumeTimer = setTimeout(restartHeroVideo, 250);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") restartHeroVideo();
+    });
+    return () => {
+      clearTimeout(resumeTimer);
+      subscription.remove();
+    };
+  }, [restartHeroVideo]);
 
   return (
     <View style={{ backgroundColor: "#070d18", height: HERO_HEIGHT, overflow: "hidden" }}>
@@ -2083,7 +2136,7 @@ function CompactLineupArtistRow({
   );
 }
 
-const PARTICIPATING_CARD_HEIGHT = 228;
+const PARTICIPATING_CARD_HEIGHT = 268;
 
 const participatingCardStyles = StyleSheet.create({
   shell: {
@@ -2215,6 +2268,8 @@ function ParticipatingVenueCard({
 
   const showQr = canShowParticipatingQr(phase);
   const entryTicket = findVenueEntryTicket(venue, userPickId, wonTickets);
+  const stageLabel = participationStageLabel(phase, !!entryTicket);
+  const ctaLabel = participationCardCtaLabel(phase, !!entryTicket);
 
   const handleQrPress = () => {
     if (entryTicket) onOpenTicketQr(entryTicket);
@@ -2245,7 +2300,7 @@ function ParticipatingVenueCard({
         ) : null}
         <View style={participatingCardStyles.body}>
           <View>
-            <Text style={participatingCardStyles.eyebrow}>티켓이 만들어지는 무대</Text>
+            <Text style={participatingCardStyles.eyebrow}>{stageLabel}</Text>
             <Text style={participatingCardStyles.headline}>{pickedArtist.name}와 함께 만드는 무대</Text>
             <Text style={participatingCardStyles.venueLine}>
               {venue.venueName} · {venue.district}
@@ -2257,7 +2312,7 @@ function ParticipatingVenueCard({
             <Text style={[participatingCardStyles.schedule, { marginTop: 2 }]}>{formatShowDateCompact(venue)}</Text>
           </View>
           <TouchableOpacity onPress={() => onOpenArtist(pickedArtist)} style={participatingCardStyles.cta} activeOpacity={0.9}>
-            <Text style={participatingCardStyles.ctaLabel}>내 선택 보기</Text>
+            <Text style={participatingCardStyles.ctaLabel}>{ctaLabel}</Text>
           </TouchableOpacity>
         </View>
       </ImageBackground>
@@ -2428,6 +2483,48 @@ function MyParticipatingSection({
   );
 }
 
+function MyCompletedStagesSection({
+  venues,
+  venueBackings,
+  wonTickets,
+  onOpenArtist,
+  onOpenTicketQr,
+  onQrPending,
+}: {
+  venues: VenueCompetition[];
+  venueBackings: Record<string, string>;
+  wonTickets: Ticket[];
+  onOpenArtist: (v: VenueCompetition, a: CompetingArtist) => void;
+  onOpenTicketQr: (ticket: Ticket) => void;
+  onQrPending: () => void;
+}) {
+  if (venues.length === 0) return null;
+
+  return (
+    <View style={{ marginBottom: SPACE.lg }}>
+      <Text style={{ color: C.text, fontWeight: "900", fontSize: 22, lineHeight: 28 }}>성사 완료된 공연</Text>
+      <Text style={{ color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 4, marginBottom: SPACE.md }}>
+        당신의 선택이 실제 티켓으로 바뀐 무대예요
+      </Text>
+      {venues.map((venue) => {
+        const pickId = venueBackings[venue.id];
+        if (!pickId) return null;
+        return (
+          <ParticipatingVenueCard
+            key={venue.id}
+            venue={venue}
+            userPickId={pickId}
+            wonTickets={wonTickets}
+            onOpenArtist={(a) => onOpenArtist(venue, a)}
+            onOpenTicketQr={onOpenTicketQr}
+            onQrPending={onQrPending}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
 function DiscoverFeedHeading({ count }: { count: number }) {
   return (
     <View style={{ marginBottom: SPACE.md }}>
@@ -2475,15 +2572,32 @@ function VenueFeedScreen({
     if (!pick) return false;
     return !venueIsClosed(v, totalSupporters(v));
   });
+  const myCompleted = venues.filter((v) => {
+    const pick = venueBackings[v.id];
+    if (!pick) return false;
+    return venueIsClosed(v, totalSupporters(v));
+  });
   const discoverActive = venues.filter((v) => {
     if (venueBackings[v.id]) return false;
     return !venueIsClosed(v, totalSupporters(v));
   });
-  const closed = venues.filter((v) => venueIsClosed(v, totalSupporters(v)));
+  const closed = venues.filter((v) => {
+    if (venueBackings[v.id]) return false;
+    return venueIsClosed(v, totalSupporters(v));
+  });
 
   return (
     <>
       <LandingHero />
+
+      <MyCompletedStagesSection
+        venues={myCompleted}
+        venueBackings={venueBackings}
+        wonTickets={wonTickets}
+        onOpenArtist={onOpenArtist}
+        onOpenTicketQr={onOpenTicketQr}
+        onQrPending={onQrPending}
+      />
 
       <MyParticipatingSection
         venues={myActive}
@@ -2693,6 +2807,127 @@ function VenueDetailScreen({
   );
 }
 
+function ArtistConfirmedScreen({
+  artist,
+  venue,
+  isUserPick,
+  onBack,
+  onClaimTicket,
+  onInviteFriends,
+  onViewSupporterRecord,
+}: {
+  artist: CompetingArtist;
+  venue: VenueCompetition;
+  isUserPick: boolean;
+  onBack: () => void;
+  onClaimTicket: () => void;
+  onInviteFriends: () => void;
+  onViewSupporterRecord: () => void;
+}) {
+  const schedule = formatShowSchedule(venue);
+  const ticketStatus = ticketOpenStatusLabel(venue.countdown, isUserPick);
+
+  const scrollBody = (
+    <>
+      <ScreenHeader
+        title={artistConfirmedTitle(artist, venue)}
+        subtitle="이 공연은 예정된 게 아니라, 팬들이 만들어낸 것이다"
+        onBack={onBack}
+        eyebrow={artistConfirmedEyebrow(artist)}
+        titleSize={26}
+      />
+
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: SPACE.md }}>
+        <View style={{ backgroundColor: ROLE.fan.bg, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: ROLE.fan.border }}>
+          <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 11 }}>서울 팬 {artist.supporters}명이 만든 공연</Text>
+        </View>
+        <View style={{ backgroundColor: "#1e293b", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: C.border }}>
+          <Text style={{ color: C.gold, fontWeight: "900", fontSize: 11 }}>Founding fans가 만든 무대</Text>
+        </View>
+      </View>
+
+      <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: ROLE.fan.border }}>
+        <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 13, letterSpacing: 0.5 }}>공연 확정</Text>
+        <Text style={{ color: C.text, fontWeight: "900", fontSize: 22, marginTop: SPACE.xs }}>{venue.venueName}</Text>
+        <Text style={{ color: C.muted, marginTop: 4, fontSize: 16, fontWeight: "700" }}>{schedule}</Text>
+      </View>
+
+      <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
+        <Text style={{ color: C.text, fontWeight: "900", fontSize: 28, letterSpacing: -0.5 }}>{artist.supporters} founding fans</Text>
+        <Text style={{ color: C.muted, marginTop: SPACE.xs, fontSize: 15, fontWeight: "700" }}>목표 달성 100%</Text>
+        <Text style={{ color: ROLE.fan.primary, marginTop: 4, fontSize: 15, fontWeight: "800" }}>{ticketStatus}</Text>
+        <View style={{ height: 8, borderRadius: 999, backgroundColor: C.border, marginTop: SPACE.md, overflow: "hidden" }}>
+          <View style={{ height: "100%", width: "100%", backgroundColor: ROLE.fan.primary, borderRadius: 999 }} />
+        </View>
+      </View>
+
+      {isUserPick ? (
+        <View style={{ backgroundColor: "#13231a", borderRadius: 20, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: ROLE.fan.border }}>
+          <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 14 }}>예치금이 티켓으로 전환됐어요</Text>
+          <Text style={{ color: C.muted, marginTop: 6, lineHeight: 22, fontWeight: "600" }}>
+            {BACKING_PRICE} 예치 → {venue.venueName} 입장권. 우리가 불렀고, 이제 같이 완성하면 됩니다.
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={{ backgroundColor: C.surface, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md }}>
+        <SectionLabel>감정적 보상</SectionLabel>
+        {isUserPick ? (
+          <Text style={{ color: ROLE.fan.soft, lineHeight: 26, fontSize: 15, fontWeight: "700", marginBottom: SPACE.sm }}>
+            당신의 요청이 공연이 됐습니다
+          </Text>
+        ) : null}
+        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· 이름이 서포터 월에 기록됩니다</Text>
+        <Text style={{ color: "#cbd5e1", lineHeight: 26 }}>· 이 공연은 관객이 먼저 만든 무대입니다</Text>
+        <Text style={{ color: "#cbd5e1", lineHeight: 26, marginTop: SPACE.sm }}>
+          · 티켓은 다른 데서도 살 수 있지만, “이 공연을 내가 만들었다”는 지위는 fanstage만 줍니다
+        </Text>
+      </View>
+
+      <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.md }}>
+        <SectionLabel>소개</SectionLabel>
+        <Text style={{ color: "#cbd5e1", lineHeight: 26, fontSize: 15 }}>{artist.story}</Text>
+      </View>
+
+      <TouchableOpacity onPress={onViewSupporterRecord} style={{ alignItems: "center", paddingVertical: SPACE.md, marginBottom: SPACE.xl }}>
+        <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 14 }}>내 서포터 기록 보기 →</Text>
+      </TouchableOpacity>
+    </>
+  );
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 180 }} showsVerticalScrollIndicator={false}>
+        {scrollBody}
+      </ScrollView>
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          paddingHorizontal: SPACE.md,
+          paddingTop: SPACE.md,
+          paddingBottom: SPACE.lg,
+          backgroundColor: C.bg,
+          borderTopWidth: 1,
+          borderTopColor: C.border,
+        }}
+      >
+        <TouchableOpacity onPress={onClaimTicket} style={{ backgroundColor: C.accent, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}>
+          <Text style={{ color: C.ink, fontWeight: "900", fontSize: 17 }}>내 티켓 받기</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onInviteFriends}
+          style={{ marginTop: SPACE.sm, borderRadius: 18, paddingVertical: 16, alignItems: "center", borderWidth: 1, borderColor: C.border, backgroundColor: C.card }}
+        >
+          <Text style={{ color: C.text, fontWeight: "800", fontSize: 16 }}>친구 초대하기</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 function ArtistDetailScreen({
   artist,
   venue,
@@ -2702,6 +2937,9 @@ function ArtistDetailScreen({
   onBackArtist,
   onCancelPick,
   onViewTicket,
+  onClaimTicket,
+  onInviteFriends,
+  onViewSupporterRecord,
 }: {
   artist: CompetingArtist;
   venue: VenueCompetition;
@@ -2711,8 +2949,25 @@ function ArtistDetailScreen({
   onBackArtist: () => void;
   onCancelPick?: () => void;
   onViewTicket?: () => void;
+  onClaimTicket?: () => void;
+  onInviteFriends?: () => void;
+  onViewSupporterRecord?: () => void;
 }) {
   const isWinner = venue.winnerId === artist.id;
+  if (isWinner && onClaimTicket && onInviteFriends && onViewSupporterRecord) {
+    return (
+      <ArtistConfirmedScreen
+        artist={artist}
+        venue={venue}
+        isUserPick={isUserPick}
+        onBack={onBack}
+        onClaimTicket={onClaimTicket}
+        onInviteFriends={onInviteFriends}
+        onViewSupporterRecord={onViewSupporterRecord}
+      />
+    );
+  }
+
   const goal = venue.minGoal;
   const { remaining, probability } = campaignPledgeStats(artist.supporters, goal);
   const pledgeProgress = Math.min(1, artist.supporters / Math.max(goal, 1));
@@ -2977,6 +3232,34 @@ function TicketStatusPill({ label, color, bg }: { label: string; color: string; 
   );
 }
 
+function TicketLifecycleSummary({ live, ticket, refund }: { live: number; ticket: number; refund: number }) {
+  const steps = [
+    { label: "참가", value: live + ticket + refund, color: ROLE.fan.primary },
+    { label: "성사 대기", value: live, color: C.gold },
+    { label: "티켓 전환", value: ticket, color: ROLE.fan.primary },
+    { label: "환불", value: refund, color: C.muted },
+  ];
+
+  return (
+    <View style={{ backgroundColor: C.surface, borderRadius: 20, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
+      <Text style={{ color: C.text, fontWeight: "900", fontSize: 16 }}>내 선택의 진행 흐름</Text>
+      <Text style={{ color: C.muted, marginTop: 4, fontSize: 12, lineHeight: 18 }}>
+        예치한 선택은 공연 성사 여부에 따라 티켓 또는 환불로 자동 정리됩니다.
+      </Text>
+      <View style={{ flexDirection: "row", marginTop: SPACE.md }}>
+        {steps.map((step, index) => (
+          <View key={step.label} style={{ flex: 1, marginRight: index === steps.length - 1 ? 0 : SPACE.xs }}>
+            <View style={{ backgroundColor: C.card, borderRadius: 14, paddingVertical: 10, alignItems: "center", borderWidth: 1, borderColor: `${step.color}44` }}>
+              <Text style={{ color: step.color, fontWeight: "900", fontSize: 20 }}>{step.value}</Text>
+              <Text style={{ color: C.dim, fontWeight: "800", fontSize: 10, marginTop: 3 }}>{step.label}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function TicketsScreen({
   unlocked,
   pending,
@@ -3003,10 +3286,10 @@ function TicketsScreen({
   const total = counts.live + counts.ticket + counts.refund;
 
   const filters: { id: TicketWalletFilter; label: string; count: number; color: string; bg: string }[] = [
-    { id: "all", label: "All", count: total, color: C.text, bg: C.surface },
-    { id: "live", label: "Live", count: counts.live, color: C.gold, bg: "#422006" },
-    { id: "ticket", label: "Tickets", count: counts.ticket, color: C.accent, bg: "#14532d" },
-    { id: "refund", label: "Refunded", count: counts.refund, color: "#94a3b8", bg: "#1e293b" },
+    { id: "all", label: "전체", count: total, color: C.text, bg: C.surface },
+    { id: "live", label: "진행 중", count: counts.live, color: C.gold, bg: "#422006" },
+    { id: "ticket", label: "티켓", count: counts.ticket, color: C.accent, bg: "#14532d" },
+    { id: "refund", label: "환불", count: counts.refund, color: "#94a3b8", bg: "#1e293b" },
   ];
 
   const showLive = filter === "all" || filter === "live";
@@ -3017,20 +3300,22 @@ function TicketsScreen({
 
   return (
     <>
-      <ScreenHeader title="My tickets" subtitle="Track live picks, winner passes, and venue refunds." />
+      <ScreenHeader title="내 티켓" subtitle="참가한 무대가 티켓으로 바뀌는 과정을 한곳에서 봅니다." />
 
       <View style={{ flexDirection: "row", marginBottom: SPACE.md, gap: SPACE.xs }}>
         {[
-          { label: "Live picks", value: counts.live, color: C.gold },
-          { label: "Tickets", value: counts.ticket, color: C.accent },
-          { label: "Refunded", value: counts.refund, color: C.muted },
+          { label: "진행 중", value: counts.live, color: C.gold },
+          { label: "티켓", value: counts.ticket, color: C.accent },
+          { label: "환불", value: counts.refund, color: C.muted },
         ].map((stat) => (
           <View key={stat.label} style={{ flex: 1, backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, borderWidth: 1, borderColor: C.border }}>
-            <Text style={{ color: C.dim, fontSize: 10, fontWeight: "700" }}>{stat.label.toUpperCase()}</Text>
+            <Text style={{ color: C.dim, fontSize: 10, fontWeight: "700" }}>{stat.label}</Text>
             <Text style={{ color: stat.color, fontWeight: "900", fontSize: 26, marginTop: 4 }}>{stat.value}</Text>
           </View>
         ))}
       </View>
+
+      <TicketLifecycleSummary live={counts.live} ticket={counts.ticket} refund={counts.refund} />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: SPACE.lg, flexGrow: 0 }}>
         {filters.map((f) => {
@@ -3062,19 +3347,21 @@ function TicketsScreen({
 
       {total === 0 ? (
         <View style={{ backgroundColor: C.surface, borderRadius: 28, padding: SPACE.xl, alignItems: "center", borderWidth: 1, borderColor: C.border, borderStyle: "dashed" }}>
-          <Text style={{ fontSize: 36, marginBottom: SPACE.md }}>🎫</Text>
-          <Text style={{ color: C.text, fontWeight: "900", fontSize: 18 }}>No picks yet</Text>
+          <Text style={{ color: C.accentSoft, fontWeight: "900", fontSize: 30, marginBottom: SPACE.md }}>FS</Text>
+          <Text style={{ color: C.text, fontWeight: "900", fontSize: 18 }}>아직 참여한 무대가 없어요</Text>
           <Text style={{ color: C.muted, textAlign: "center", marginTop: SPACE.sm, lineHeight: 22 }}>{FANSTAGE_TAGLINE}</Text>
           <TouchableOpacity onPress={onExploreBattles} style={{ marginTop: SPACE.lg, backgroundColor: C.accent, borderRadius: 14, paddingHorizontal: SPACE.lg, paddingVertical: 12 }}>
-            <Text style={{ color: C.ink, fontWeight: "900" }}>Back an artist</Text>
+            <Text style={{ color: C.ink, fontWeight: "900" }}>무대 선택하러 가기</Text>
           </TouchableOpacity>
         </View>
       ) : null}
 
       {showLive && pending.length > 0 ? (
         <>
-          <SectionLabel>LIVE · DEPOSIT HELD</SectionLabel>
-          <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 20, fontSize: 13 }}>Battle still running. Your {BACKING_PRICE} stays locked until the venue ends.</Text>
+          <SectionLabel>진행 중 · 예치 유지</SectionLabel>
+          <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 20, fontSize: 13 }}>
+            아직 성사 중인 무대예요. 마감 전까지 {BACKING_PRICE} 예치가 유지됩니다.
+          </Text>
           {pending.map((p) => {
             const open = expandedId === p.id;
             const ms = momentumStyle(p.momentum);
@@ -3103,13 +3390,15 @@ function TicketsScreen({
                 </View>
                 {open ? (
                   <View style={{ marginTop: SPACE.md, paddingTop: SPACE.md, borderTopWidth: 1, borderTopColor: C.border }}>
-                    <Text style={{ color: C.muted, lineHeight: 20, marginBottom: SPACE.sm }}>If {p.artist} wins, your deposit becomes a ticket. If not, {BACKING_PRICE} refunds per venue.</Text>
+                    <Text style={{ color: C.muted, lineHeight: 20, marginBottom: SPACE.sm }}>
+                      {p.artist}가 성사되면 예치금은 티켓으로 전환됩니다. 성사되지 않으면 {BACKING_PRICE}는 자동 환불돼요.
+                    </Text>
                     <TouchableOpacity onPress={() => onOpenArtistFromPick(p)} style={{ backgroundColor: ROLE.fan.bg, borderRadius: 12, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: ROLE.fan.border }}>
-                      <Text style={{ color: ROLE.fan.primary, fontWeight: "900" }}>Track battle →</Text>
+                      <Text style={{ color: ROLE.fan.primary, fontWeight: "900" }}>진행 상황 보기 →</Text>
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 12 }}>Tap to expand</Text>
+                  <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 12 }}>눌러서 자세히 보기</Text>
                 )}
               </TouchableOpacity>
             );
@@ -3118,13 +3407,15 @@ function TicketsScreen({
       ) : null}
 
       {showLive && pending.length === 0 && filter === "live" ? (
-        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>No live picks. Back an artist in an open venue battle.</Text>
+        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>진행 중인 선택이 없어요. 열려 있는 무대에서 팀을 선택해 보세요.</Text>
       ) : null}
 
       {showTicket && unlocked.length > 0 ? (
         <>
-          <SectionLabel>TICKET · DEPOSIT CONVERTED</SectionLabel>
-          <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 20, fontSize: 13 }}>Your pick won the venue. Show QR at the door.</Text>
+          <SectionLabel>티켓 · 예치금 전환 완료</SectionLabel>
+          <Text style={{ color: C.muted, marginBottom: SPACE.md, lineHeight: 20, fontSize: 13 }}>
+            선택한 팀이 무대를 얻었어요. 현장에서는 QR 입장권을 보여주면 됩니다.
+          </Text>
           {unlocked.map((t) => {
             const open = expandedId === `ticket-${t.id}`;
             return (
@@ -3135,8 +3426,8 @@ function TicketsScreen({
                 style={{ backgroundColor: C.card, borderRadius: 28, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 2, borderColor: C.accent }}
               >
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <TicketStatusPill label="TICKET READY" color={C.accent} bg="#14532d" />
-                  <Text style={{ fontSize: 22 }}>🎫</Text>
+                  <TicketStatusPill label="티켓 준비 완료" color={C.accent} bg="#14532d" />
+                  <Text style={{ color: C.accentSoft, fontWeight: "900", fontSize: 16 }}>QR</Text>
                 </View>
                 <Text style={{ color: C.text, fontSize: 22, fontWeight: "900", marginTop: SPACE.sm }}>{t.artist}</Text>
                 <Text style={{ color: C.muted }}>{t.venue}</Text>
@@ -3149,18 +3440,18 @@ function TicketsScreen({
                         onPress={() => onOpenTicketQr(t)}
                         style={{ flex: 1, minWidth: 140, backgroundColor: C.accent, borderRadius: 12, paddingVertical: 12, alignItems: "center", marginRight: SPACE.xs, marginBottom: SPACE.xs }}
                       >
-                        <Text style={{ color: C.ink, fontWeight: "900" }}>Show QR pass</Text>
+                        <Text style={{ color: C.ink, fontWeight: "900" }}>QR 입장권 보기</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={() => onOpenArtistFromTicket(t)}
                         style={{ flex: 1, minWidth: 140, backgroundColor: C.surface, borderRadius: 12, paddingVertical: 12, alignItems: "center", borderWidth: 1, borderColor: C.border, marginBottom: SPACE.xs }}
                       >
-                        <Text style={{ color: C.accentSoft, fontWeight: "900" }}>View artist</Text>
+                        <Text style={{ color: C.accentSoft, fontWeight: "900" }}>아티스트 보기</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
                 ) : (
-                  <Text style={{ color: C.accentSoft, marginTop: SPACE.md, fontWeight: "800" }}>Tap to open pass actions</Text>
+                  <Text style={{ color: C.accentSoft, marginTop: SPACE.md, fontWeight: "800" }}>눌러서 입장권 열기</Text>
                 )}
               </TouchableOpacity>
             );
@@ -3169,7 +3460,7 @@ function TicketsScreen({
       ) : null}
 
       {showTicket && unlocked.length === 0 && filter === "ticket" ? (
-        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>No winner tickets yet. Back the artist who wins the slot.</Text>
+        <Text style={{ color: C.dim, marginBottom: SPACE.lg }}>아직 전환된 티켓이 없어요. 선택한 팀이 성사되면 여기에 나타납니다.</Text>
       ) : null}
 
       {showRefund && refunded.length > 0 ? (
@@ -4924,27 +5215,40 @@ function AppContent() {
           (t.artistId && t.artistId === liveArtist.id) ||
           (t.artist === liveArtist.name && t.venue === liveVenue.venueName)
       );
+      const isUserPick = venueBackings[liveVenue.id] === liveArtist.id;
+      const openTicketQr = (ticket: Ticket) => {
+        setSelectedTicket(ticket);
+        setOverlay("ticketQr");
+      };
       return (
         <ArtistDetailScreen
           artist={liveArtist}
           venue={liveVenue}
-          isUserPick={venueBackings[liveVenue.id] === liveArtist.id}
+          isUserPick={isUserPick}
           statusLabel={getArtistStatusLabel(liveVenue, liveArtist, venueBackings[liveVenue.id])}
           onBack={closeArtistDetail}
           onBackArtist={() => tryBackArtist(liveVenue, liveArtist)}
-          onCancelPick={
-            venueBackings[liveVenue.id] === liveArtist.id && !liveVenue.winnerId
-              ? () => cancelVenuePick(liveVenue)
-              : undefined
-          }
-          onViewTicket={
-            matchedTicket
-              ? () => {
-                  setSelectedTicket(matchedTicket);
-                  setOverlay("ticketQr");
-                }
-              : undefined
-          }
+          onCancelPick={isUserPick && !liveVenue.winnerId ? () => cancelVenuePick(liveVenue) : undefined}
+          onViewTicket={matchedTicket ? () => openTicketQr(matchedTicket) : undefined}
+          onClaimTicket={() => {
+            if (matchedTicket) {
+              openTicketQr(matchedTicket);
+              return;
+            }
+            if (isUserPick) {
+              const ticket = createWinnerTicket(liveVenue, liveArtist);
+              setWonTickets((prev) => (prev.some((t) => t.id === ticket.id) ? prev : [...prev, ticket]));
+              openTicketQr(ticket);
+              return;
+            }
+            showToast(`${ticketOpenStatusLabel(liveVenue.countdown, false)} · founding fan 예약을 준비 중이에요`);
+          }}
+          onInviteFriends={() => {
+            showToast(`친구 초대 링크 복사됨 · ${liveArtist.name} @ ${liveVenue.venueName} — 우리가 만든 공연이에요`);
+          }}
+          onViewSupporterRecord={() => {
+            showToast(`서포터 월에 @${fanHandle} 기록됨 · ${liveArtist.name} founding fan`);
+          }}
         />
       );
     }
