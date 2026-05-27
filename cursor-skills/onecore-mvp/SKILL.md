@@ -12,7 +12,14 @@ Use this skill when building or reviewing ONECORE in **fanstage-clean** (Expo 54
 
 ## Product Truth
 
+**ONECORE is the MVP wedge; multi-team venue Battle is a later growth mechanic (beta), not the default loop.**
+
 ONECORE is not a ticketing page. Fans join with **core** (예치); reaching the target does **not** mean the show is confirmed.
+
+- **100 core** = minimum demand to start show preparation (not venue capacity).
+- **Venue capacity** matters only after artist acceptance + venue assignment → additional tickets open.
+
+See `docs/decisions/2026-05-27-onecore-first-battle-later.md`.
 
 Required loop:
 
@@ -43,7 +50,7 @@ App.tsx                 # State: onecoreState, overlays raceProposal | adminRace
 
 | Entry | Path |
 |-------|------|
-| Fan discover | **Venues** tab → `ONECORE 제안` → `OnecoreRaceCard` → overlay `raceProposal` |
+| Fan discover | **Venues** tab → `ONECORE 캠페인` → `OnecoreRaceCard` → overlay `raceProposal` |
 | Fan detail | `RaceProposalScreen` |
 | Admin | **Profile** (curator) → `ONECORE Admin · Race & logs` → overlay `adminRace` |
 | State | `useState(seedOnecoreState())` in `AppContent`; user `user-mike`, admin `admin@fanstage` |

@@ -42,7 +42,7 @@ import {
   updateRaceOperations,
 } from "./onecore/logic";
 import { seedOnecoreState } from "./onecore/seed";
-import type { OnecoreState, Race, RaceDraft, RaceStatus } from "./onecore/types";
+import type { Artist, OnecoreState, Race, RaceDraft, RaceStatus, VenueCandidate } from "./onecore/types";
 import { BattleArtistSocialProof, openArtistSocialUrl } from "./components/BattleArtistSocialProof";
 import {
   BattleProofPitchFields,
@@ -81,12 +81,12 @@ const BACKING_PRICE = "3만원";
 const FANSTAGE_TAGLINE = "팬스테이지는 팬이 무대를 현실로 만드는 곳입니다.";
 const FANSTAGE_HERO_MAIN = "팬이 모이면, 무대가 열린다";
 const FANSTAGE_HERO_SUB =
-  "한 공연장, 한 번의 선택. 가장 많은 지지를 받은 팀이 실제 무대에 오릅니다.";
+  "공연이 잡히기 전에 팬들이 먼저 수요를 증명합니다. 100코어가 모이면 공연 준비가 시작돼요.";
 const ONECORE_TAGLINE_SHORT = "100코어가 모이면 공연 준비가 시작돼요.";
-const ONECORE_RACE_LEAD = "지금 무대에 가장 가까운 팀";
-const ONECORE_RACE_FINISH = "100코어를 먼저 채운 한 팀이 단독 공연 준비 단계로 넘어갑니다.";
-const ONECORE_LINEUP_TITLE = "누가 이 밤의 주인공이 될까요?";
-const ONECORE_RULE_SUMMARY = "100코어를 먼저 채운 한 팀이 공연 준비 단계로 넘어갑니다. 실패 시 전액 환불.";
+const ONECORE_CAMPAIGN_HEADLINE = "100코어로 공연을 열자";
+const ONECORE_RULE_SUMMARY = "최소 수요 100코어 · 실패 시 전액 환불";
+const ONECORE_THRESHOLD_EXPLAIN =
+  "100코어는 공연을 열기 위한 최소 수요입니다. 실제 좌석 수는 공연장 확정 후 정해져요.";
 const ONECORE_SOLO_CORE_GOAL = 100;
 const ONECORE_ALMOST_THERE_REMAINING = 35;
 
@@ -2210,9 +2210,9 @@ function HeroBrandingSlide() {
       </Text>
       <View style={{ marginTop: SPACE.md }}>
         {[
-          { icon: "♪", title: "팬이 이끕니다", body: "당신의 선택이 무대에 오를 팀을 정합니다." },
-          { icon: "◎", title: "공연장이 열립니다", body: "실제 공연장, 장르별 성사 무대." },
-          { icon: "✦", title: "무대가 성사됩니다", body: "가장 많은 지지를 받은 팀이 헤드라인 무대에 오릅니다." },
+          { icon: "♪", title: "코어로 수요 증명", body: "100코어가 모이면 fanstage가 공연 준비를 시작합니다." },
+          { icon: "◎", title: "아티스트·베뉴 연결", body: "비공개 초대와 공연장 매칭은 fanstage가 진행합니다." },
+          { icon: "✦", title: "티켓 추가 오픈", body: "베뉴 확정 후 남은 좌석이 추가로 열립니다." },
         ].map((item) => (
           <View key={item.title} style={{ flexDirection: "row", marginBottom: SPACE.sm, alignItems: "center" }}>
             <View
@@ -2244,18 +2244,18 @@ function HeroBrandingSlide() {
 function HeroRulesSlide() {
   return (
     <HeroSlideShell accent="#422006">
-      <Text style={{ color: C.gold, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>무대 성사 방식</Text>
+      <Text style={{ color: C.gold, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>ONECORE</Text>
       <Text style={{ color: C.text, fontSize: 22, fontWeight: "900", lineHeight: 28, marginTop: 10, letterSpacing: -0.4 }}>
-        팬이 무대를 만드는 법
+        {ONECORE_CAMPAIGN_HEADLINE}
       </Text>
       <Text style={{ color: ROLE.fan.soft, fontSize: 13, lineHeight: 20, marginTop: 8, marginBottom: SPACE.sm, fontWeight: "600" }}>
-        공연장마다 한 팬, 한 선택. 당신의 선택이 라인업을 정합니다.
+        {ONECORE_THRESHOLD_EXPLAIN}
       </Text>
       {[
-        `공연장별 1회 선택 · 보증금 ${BACKING_PRICE}`,
-        "공연장 장르에 맞는 팀만 참여",
-        "가장 많은 지지가 무대 확정 · 참여자 티켓",
-        "선택한 팀이 성사되지 않으면 환불",
+        `코어 참여 · 예치금 ${BACKING_PRICE}`,
+        "최소 수요 100코어 달성 → 아티스트 초대",
+        "아티스트 수락 · 베뉴 확정 후 티켓 오픈",
+        "공연이 열리지 않으면 환불",
       ].map((rule) => (
         <View key={rule} style={{ flexDirection: "row", marginBottom: 6, alignItems: "flex-start" }}>
           <Text style={{ color: ROLE.fan.primary, fontWeight: "900", marginRight: 8, fontSize: 12, lineHeight: 18 }}>·</Text>
@@ -2784,10 +2784,10 @@ function ParticipatingVenueCard({
   const entryTicket = findVenueEntryTicket(venue, userPickId, wonTickets);
   const stageLabel = inOnecoreCampaign ? discoverBadge : participationStageLabel(getVenueDemandPhase(venue, total), !!entryTicket);
   const metricLine = inOnecoreCampaign
-    ? `1위 ${leader.name} 기준 ${cores} / ${ONECORE_SOLO_CORE_GOAL}명`
+    ? `${cores} / ${ONECORE_SOLO_CORE_GOAL}코어 · 최소 수요`
     : venueParticipatingCardMetric(total, venue.minGoal, venue.capacity, getVenueDemandPhase(venue, total));
   const subline = inOnecoreCampaign ? venueOnecoreProgressLine(venue) : null;
-  const ctaLabel = inOnecoreCampaign ? "이 팀 밀기" : participationCardCtaLabel(getVenueDemandPhase(venue, total), !!entryTicket);
+  const ctaLabel = inOnecoreCampaign ? "캠페인 보기" : participationCardCtaLabel(getVenueDemandPhase(venue, total), !!entryTicket);
 
   const handleQrPress = () => {
     if (entryTicket) onOpenTicketQr(entryTicket);
@@ -3063,6 +3063,7 @@ function VenueFeedScreen({
   onInviteFriend,
   onecoreRaces,
   onOpenOnecoreRace,
+  onecoreVenues,
 }: {
   district: DistrictFilter;
   onDistrictChange: (d: DistrictFilter) => void;
@@ -3079,7 +3080,8 @@ function VenueFeedScreen({
   onOpenTicketQr: (ticket: Ticket) => void;
   onQrPending: () => void;
   onInviteFriend: (venue: VenueCompetition, artist: CompetingArtist) => void;
-  onecoreRaces: { race: Race; artistName: string; artistGenre: string }[];
+  onecoreRaces: { race: Race; artist: Artist }[];
+  onecoreVenues: VenueCandidate[];
   onOpenOnecoreRace: (raceId: string) => void;
 }) {
   const myActive = venues.filter((v) => {
@@ -3098,18 +3100,23 @@ function VenueFeedScreen({
 
       {onecoreRaces.length > 0 ? (
         <View style={{ marginBottom: SPACE.lg }}>
-          <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, lineHeight: 26 }}>ONECORE 제안</Text>
+          <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, lineHeight: 26 }}>ONECORE 캠페인</Text>
           <Text style={{ color: C.muted, fontSize: 13, marginTop: 4, lineHeight: 19 }}>
-            100코어가 모이면 공연 준비가 시작돼요
+            {ONECORE_CAMPAIGN_HEADLINE}
           </Text>
           <Text style={{ color: C.dim, fontSize: 12, marginTop: 4, marginBottom: SPACE.md, lineHeight: 18 }}>
-            100코어는 공연을 열기 위한 최소 수요입니다. 실제 좌석 수는 공연장 확정 후 정해져요.
+            {ONECORE_THRESHOLD_EXPLAIN}
           </Text>
-          {onecoreRaces.map(({ race, artistName, artistGenre }) => (
+          {onecoreRaces.map(({ race, artist }) => (
             <OnecoreRaceCard
               key={race.id}
               race={race}
-              artist={{ id: race.artistId, name: artistName, genre: artistGenre, bio: "", tagline: "" }}
+              artist={artist}
+              venueName={
+                onecoreVenues.find((v) => v.id === race.assignedVenueId)?.name ??
+                (race.assignedVenueId === "venue-ff" ? "홍대 클럽 FF" : undefined)
+              }
+              venueCapacity={onecoreVenues.find((v) => v.id === race.assignedVenueId)?.capacity}
               onPress={() => onOpenOnecoreRace(race.id)}
             />
           ))}
@@ -3141,7 +3148,12 @@ function VenueFeedScreen({
         <>
             {discoverActive.length > 0 ? (
               <>
-                <DiscoverFeedHeading count={discoverActive.length} />
+                <View style={{ marginBottom: SPACE.md }}>
+                  <Text style={{ color: C.dim, fontWeight: "800", fontSize: 11, letterSpacing: 0.8 }}>베타 · 향후 이벤트</Text>
+                  <Text style={{ color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 4 }}>
+                    다팀 배틀은 큐레이터/공연장 이벤트용입니다. MVP 핵심은 ONECORE 캠페인이에요.
+                  </Text>
+                </View>
                 {discoverActive.map((venue) => (
                   <ExploreVenueCard key={venue.id} venue={venue} onOpenVenue={() => onOpenVenue(venue)} />
                 ))}
@@ -3157,14 +3169,37 @@ function VenueFeedScreen({
   );
 }
 
-function BattleVenueHero({ venue, total }: { venue: VenueCompetition; total: number }) {
+function BetaEventBattleBanner({ onOpenCampaign }: { onOpenCampaign: () => void }) {
+  return (
+    <View
+      style={{
+        backgroundColor: "#1e293b",
+        borderRadius: 14,
+        padding: SPACE.md,
+        marginBottom: SPACE.md,
+        borderWidth: 1,
+        borderColor: C.border,
+      }}
+    >
+      <Text style={{ color: C.dim, fontWeight: "800", fontSize: 11, letterSpacing: 0.6 }}>베타 · 공연장 이벤트</Text>
+      <Text style={{ color: C.muted, fontSize: 13, lineHeight: 20, marginTop: 6 }}>
+        fanstage MVP는 ONECORE 캠페인입니다. 다팀 배틀은 향후 큐레이터/공연장용 성장 기능이에요.
+      </Text>
+      <TouchableOpacity onPress={onOpenCampaign} style={{ marginTop: SPACE.sm }}>
+        <Text style={{ color: C.accentSoft, fontWeight: "900", fontSize: 13 }}>ONECORE 캠페인 보기 →</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function BattleVenueHero({ venue, total, isBetaEvent }: { venue: VenueCompetition; total: number; isBetaEvent?: boolean }) {
   const g = genreTheme(venue.slotGenre);
   const leading = sortedArtists(venue)[0];
   return (
     <View style={{ marginBottom: SPACE.sm }}>
       <Text style={{ color: g.primary, fontWeight: "900", fontSize: 14, letterSpacing: 1.1 }}>{genreKo(venue.slotGenre).toUpperCase()}</Text>
       <Text style={{ color: C.text, fontWeight: "900", fontSize: 28, letterSpacing: -0.8, marginTop: 2 }}>
-        누가 이 밤의 주인공이 될까요?
+        {isBetaEvent ? "베타 · 공연장 다팀 이벤트" : ONECORE_CAMPAIGN_HEADLINE}
       </Text>
       <View
         style={{
@@ -3234,7 +3269,7 @@ function CoreRaceCard({
       <OneCoreRaceProgressBar cores={cores} goal={goal} accent={g.primary} />
       <Text style={{ color: C.text, fontSize: 16, fontWeight: "800", marginTop: SPACE.sm, lineHeight: 22 }}>{raceLine}</Text>
       <Text style={{ color: C.dim, marginTop: SPACE.xs, fontSize: 12, fontWeight: "600", lineHeight: 18 }}>
-        100코어를 먼저 채운 팀이 공연 준비 단계로 넘어갑니다
+        {ONECORE_THRESHOLD_EXPLAIN}
       </Text>
       <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 12, fontWeight: "600" }}>
         전체 참여 {total}코어 · {teamCount}팀 달리는 중
@@ -3258,12 +3293,14 @@ function BattleArtistPitchBlock({ artist, compact }: { artist: CompetingArtist; 
   );
 }
 
-function BattleLineupSectionHeader({ teamCount }: { teamCount: number }) {
+function BattleLineupSectionHeader({ teamCount, isBetaEvent }: { teamCount: number; isBetaEvent?: boolean }) {
   return (
     <View style={{ marginBottom: SPACE.xs }}>
-      <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 11, letterSpacing: 1.1 }}>LINEUP</Text>
+      <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 11, letterSpacing: 1.1 }}>
+        {isBetaEvent ? "베타 · 다팀 이벤트" : "캠페인"}
+      </Text>
       <Text style={{ color: C.gold, marginTop: 4, fontSize: 13, lineHeight: 20, fontWeight: "800" }}>
-        {teamCount}팀이 이 밤을 두고 달리고 있어요
+        {isBetaEvent ? `지금 앞서가는 팀 · ${teamCount}팀` : `${teamCount}팀이 함께 수요를 모으고 있어요`}
       </Text>
     </View>
   );
@@ -3411,12 +3448,14 @@ function BattleArtistSelection({
   userPickId,
   onOpenArtist,
   onBackArtist,
+  isBetaEvent,
 }: {
   venue: VenueCompetition;
   sorted: CompetingArtist[];
   userPickId?: string;
   onOpenArtist: (a: CompetingArtist) => void;
   onBackArtist: (a: CompetingArtist) => void;
+  isBetaEvent?: boolean;
 }) {
   const hasPick = !!userPickId;
   if (sorted.length === 0) return null;
@@ -3425,7 +3464,7 @@ function BattleArtistSelection({
 
   return (
     <View style={{ marginBottom: SPACE.lg }}>
-      <BattleLineupSectionHeader teamCount={sorted.length} />
+      <BattleLineupSectionHeader teamCount={sorted.length} isBetaEvent={isBetaEvent} />
       <BattleLeaderRaceCard
         artist={leader}
         isUserPick={userPickId === leader.id}
@@ -3539,6 +3578,7 @@ function VenueDetailScreen({
   onCancelPick,
   onInvite,
   onApply,
+  onOpenPrimaryCampaign,
 }: {
   venue: VenueCompetition;
   userPickId?: string;
@@ -3550,16 +3590,19 @@ function VenueDetailScreen({
   onCancelPick: () => void;
   onInvite: () => void;
   onApply: () => void;
+  onOpenPrimaryCampaign?: () => void;
 }) {
   const sorted = sortedArtists(venue);
   const total = totalSupporters(venue);
   const hasPick = !!userPickId;
+  const isBetaEvent = sorted.length > 1;
 
   const leader = sorted[0];
 
   return (
     <>
-      <BattleVenueHero venue={venue} total={total} />
+      {isBetaEvent && onOpenPrimaryCampaign ? <BetaEventBattleBanner onOpenCampaign={onOpenPrimaryCampaign} /> : null}
+      <BattleVenueHero venue={venue} total={total} isBetaEvent={isBetaEvent} />
       {leader ? <CoreRaceCard venue={venue} total={total} leader={leader} teamCount={sorted.length} /> : null}
 
       <BattleArtistSelection
@@ -3568,6 +3611,7 @@ function VenueDetailScreen({
         userPickId={userPickId}
         onOpenArtist={onOpenArtist}
         onBackArtist={onBackArtist}
+        isBetaEvent={isBetaEvent}
       />
 
       <BattleRulesExpandable />
@@ -4486,7 +4530,12 @@ function ApplyBattleFlow({
 
   return (
     <ArtistOnboardingKeyboardScroll scrollRef={scrollRef} contentRef={contentRef}>
-      <ScreenHeader title="Apply to battle" subtitle={`${FANSTAGE_TAGLINE} Compete within the venue's genre.`} onBack={onBack} eyebrow="ARTIST ONBOARDING" />
+      <ScreenHeader
+        title="캠페인 지원"
+        subtitle={`${FANSTAGE_TAGLINE} ONECORE 최소 수요를 모으는 캠페인에 참여합니다.`}
+        onBack={onBack}
+        eyebrow="ARTIST ONBOARDING"
+      />
       <SectionLabel>OPEN GENRE SLOTS</SectionLabel>
       {openVenues.map((v) => (
         <TouchableOpacity key={v.id} onPress={() => setVenueId(v.id)} style={{ backgroundColor: venueId === v.id ? "#1f2f4a" : C.card, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.sm, borderWidth: 1, borderColor: venueId === v.id ? C.accent : C.border }}>
@@ -5797,12 +5846,10 @@ function AppContent() {
       .filter((r) => r.status !== "draft")
       .map((race) => {
         const artist = artistById(onecoreState, race.artistId);
-        return {
-          race,
-          artistName: artist?.name ?? "아티스트",
-          artistGenre: artist?.genre ?? "",
-        };
-      });
+        if (!artist) return null;
+        return { race, artist };
+      })
+      .filter((x): x is { race: Race; artist: NonNullable<ReturnType<typeof artistById>> } => x !== null);
   }, [onecoreState]);
 
   const openOnecoreRace = (raceId: string) => {
@@ -6323,6 +6370,9 @@ function AppContent() {
           onCancelPick={() => cancelVenuePick(liveVenue)}
           onInvite={() => openInvite(liveVenue)}
           onApply={() => openApply(liveVenue)}
+          onOpenPrimaryCampaign={
+            liveVenue.id === "clubff" ? () => openOnecoreRace("race-kimogi-jazz-ff") : undefined
+          }
         />
       );
     }
@@ -6393,6 +6443,7 @@ function AppContent() {
               showToast(`친구 초대 링크 복사됨 · ${a.name} @ ${v.venueName} — 우리가 만든 공연이에요`)
             }
             onecoreRaces={discoverOnecoreRaces}
+            onecoreVenues={onecoreState.venueCandidates}
             onOpenOnecoreRace={openOnecoreRace}
           />
         );

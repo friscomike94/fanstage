@@ -1,7 +1,39 @@
-import type { FailureKind, Race, RaceAdminPhase, RaceStatus } from "./types";
-import { mapStatusToAdminPhase } from "./logic";
+import type { FailureKind, OnecoreFanPhase, Race, RaceAdminPhase, RaceStatus } from "./types";
+import { mapStatusToAdminPhase, resolveOnecoreFanPhase } from "./logic";
 
 /** 목표 달성 전 — 확정적 표현 금지 */
+export const ONECORE_THRESHOLD_NOTE =
+  "100코어는 공연을 열기 위한 최소 수요입니다. 실제 좌석 수는 공연장 확정 후 정해져요.";
+
+export function fanPhaseLabel(phase: OnecoreFanPhase): string {
+  const map: Record<OnecoreFanPhase, string> = {
+    collecting_core: "모집 중",
+    threshold_reached: "아티스트 초대 검토 중",
+    artist_accepted: "아티스트 수락",
+    venue_assigned: "베뉴 확정",
+    ticket_open: "티켓 추가 오픈",
+  };
+  return map[phase];
+}
+
+export function fanPhaseSubline(phase: OnecoreFanPhase, race: Race): string {
+  const remaining = Math.max(0, race.targetCount - race.currentCount);
+  switch (phase) {
+    case "collecting_core":
+      return `${remaining}코어 더 모이면 아티스트 초대 단계로 넘어갑니다`;
+    case "threshold_reached":
+      return "최소 수요가 증명됐어요. fanstage가 아티스트와 공연 조건을 확인합니다.";
+    case "artist_accepted":
+      return "아티스트 수락 후 좌석/티켓 수량이 열려요. 베뉴 매칭 중입니다.";
+    case "venue_assigned":
+      return "베뉴 정원은 공연장 확정 후 공개돼요. 티켓 오픈을 준비 중입니다.";
+    case "ticket_open":
+      return "100코어는 공연을 여는 최소 수요였고, 남은 좌석은 베뉴 확정 후 추가로 열립니다.";
+    default:
+      return ONECORE_THRESHOLD_NOTE;
+  }
+}
+
 export function raceProgressHeadline(race: Race): string {
   const remaining = Math.max(0, race.targetCount - race.currentCount);
   if (remaining > 0) {
@@ -20,6 +52,10 @@ export function raceProgressSubline(race: Race): string {
 
 /** 팬에게만 보이는 상태 문구 — 협상·수수료 노출 없음 */
 export function fanStatusHeadline(race: Race): string {
+  const fanPhase = resolveOnecoreFanPhase(race);
+  if (fanPhase === "ticket_open") return "아티스트 수락 · 베뉴 확정";
+  if (fanPhase === "threshold_reached") return "아티스트가 초대장을 검토 중이에요";
+  if (fanPhase === "collecting_core") return "모집 중";
   const phase = race.adminPhase ?? mapStatusToAdminPhase(race.status);
   if (phase === "demand_proven" || race.status === "target_reached") return "아티스트 초대 검토 중";
   if (phase === "artist_contacting") return "아티스트에게 비공개 초대장을 보냈어요";
@@ -179,7 +215,8 @@ export function formatCountdown(c: Race["deadlineCountdown"]): string {
 
 export const TRUST_COPY = {
   payment: "참여 시 예치금이 보관되며, 공연이 열리지 않으면 환불됩니다.",
-  success: "100 core에 도달해도 ‘공연 확정’이 아니라 fanstage가 비공개로 준비 단계를 시작합니다.",
-  venue: "공연장은 팬이 확정하지 않습니다. fanstage가 후보를 좁혀 조율합니다.",
+  success: "100코어가 모이면 공연 준비가 시작돼요. ‘공연 확정’과 티켓 오픈은 그 다음 단계입니다.",
+  venue: "베뉴 정원은 공연장 확정 후 공개돼요. 100코어는 최소 수요 임계치입니다.",
   rules: "성공·실패 규칙은 아래에서 언제든 확인할 수 있습니다.",
+  wedge: ONECORE_THRESHOLD_NOTE,
 } as const;

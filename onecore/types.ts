@@ -21,6 +21,14 @@ export type RaceStatus =
   | "refunded";
 
 /** Admin-facing pipeline (maps from RaceStatus; safe to extend without breaking fans) */
+/** Fan-facing campaign phase (distinct from admin pipeline) */
+export type OnecoreFanPhase =
+  | "collecting_core"
+  | "threshold_reached"
+  | "artist_accepted"
+  | "venue_assigned"
+  | "ticket_open";
+
 export type RaceAdminPhase =
   | "collecting_demand"
   | "demand_proven"

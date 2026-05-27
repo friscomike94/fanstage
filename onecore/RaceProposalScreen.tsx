@@ -1,19 +1,21 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Switch } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { Artist, OnecoreState, Race, RefundPolicy, VenueCandidate } from "./types";
+import { BattleArtistSocialProof } from "../components/BattleArtistSocialProof";
+import type { Artist, Race, RefundPolicy, VenueCandidate } from "./types";
 import {
   buildPreparationSteps,
   failureCopy,
+  fanPhaseLabel,
+  fanPhaseSubline,
   formatCountdown,
   formatDeposit,
   fanStatusHeadline,
   fanStatusSubline,
-  raceProgressHeadline,
-  raceProgressSubline,
+  ONECORE_THRESHOLD_NOTE,
   TRUST_COPY,
 } from "./copy";
-import { canFanCommit, isTerminalStatus } from "./logic";
+import { canFanCommit, isTerminalStatus, resolveOnecoreFanPhase } from "./logic";
 import { OC, OC_SPACE as S } from "./tokens";
 
 type Props = {
@@ -80,6 +82,11 @@ export function RaceProposalScreen({
   const prepSteps = buildPreparationSteps(race);
   const fail = failed ? failureCopy(race.failureKind, race.failureMessage) : null;
   const assignedVenue = venues.find((v) => v.id === race.assignedVenueId);
+  const fanPhase = resolveOnecoreFanPhase(race);
+  const pitch = artist.battlePitch ?? race.proposalReason;
+  const isTicketOpen = fanPhase === "ticket_open";
+  const venueCapacity = assignedVenue?.capacity ?? 180;
+  const remainingTickets = Math.max(0, venueCapacity - race.targetCount);
 
   return (
     <ScrollView
@@ -99,16 +106,22 @@ export function RaceProposalScreen({
         <Text style={{ color: OC.muted, fontWeight: "800", fontSize: 15 }}>← 뒤로</Text>
       </TouchableOpacity>
 
-      <Text style={{ color: OC.gold, fontWeight: "900", fontSize: 11, letterSpacing: 1.2 }}>ONECORE · 공연 제안</Text>
-      <Text style={{ color: OC.text, fontWeight: "900", fontSize: 28, marginTop: S.xs, letterSpacing: -0.5 }}>{race.title}</Text>
-      <Text style={{ color: OC.muted, marginTop: 4, fontSize: 15, fontWeight: "700" }}>
-        {artist.name} · {artist.genre}
+      <Text style={{ color: OC.gold, fontWeight: "900", fontSize: 11, letterSpacing: 1.2 }}>
+        {isTicketOpen ? "티켓 추가 오픈" : "ONECORE · 캠페인"}
       </Text>
+      <Text style={{ color: OC.text, fontWeight: "900", fontSize: 28, marginTop: S.xs, letterSpacing: -0.5 }}>
+        100코어로 공연을 열자
+      </Text>
+      <Text style={{ color: OC.muted, marginTop: 4, fontSize: 15, fontWeight: "700" }}>
+        {race.title} · {artist.name} · {fanPhaseLabel(fanPhase)}
+      </Text>
+      <Text style={{ color: OC.dim, marginTop: S.xs, fontSize: 13, lineHeight: 20 }}>{ONECORE_THRESHOLD_NOTE}</Text>
 
       <Card border={OC.fan.border}>
-        <SectionLabel>WHY THIS SHOW</SectionLabel>
-        <Text style={{ color: OC.text, fontSize: 16, lineHeight: 24, fontWeight: "600" }}>{race.proposalReason}</Text>
+        <SectionLabel>팬들이 응원할 이유</SectionLabel>
+        <Text style={{ color: OC.text, fontSize: 16, lineHeight: 24, fontWeight: "600" }}>{pitch}</Text>
         <Text style={{ color: OC.dim, marginTop: S.md, fontSize: 13, lineHeight: 20 }}>{artist.bio}</Text>
+        <BattleArtistSocialProof social={artist.social} sectionLabel="아티스트 확인하기" />
       </Card>
 
       {!terminal ? (
@@ -117,10 +130,13 @@ export function RaceProposalScreen({
           <Text style={{ color: OC.text, fontWeight: "900", fontSize: 32, marginTop: S.sm }}>
             {race.currentCount} / {race.targetCount}
           </Text>
+          <Text style={{ color: OC.dim, fontSize: 12, marginTop: 2 }}>최소 수요 100코어</Text>
           <Text style={{ color: OC.text, fontSize: 17, fontWeight: "800", marginTop: S.xs, lineHeight: 24 }}>
-            {raceProgressHeadline(race)}
+            {fanPhaseSubline(fanPhase, race)}
           </Text>
-          <Text style={{ color: OC.muted, marginTop: S.xs, fontSize: 14, lineHeight: 20 }}>{raceProgressSubline(race)}</Text>
+          <Text style={{ color: OC.muted, marginTop: S.xs, fontSize: 14, lineHeight: 20 }}>
+            공연이 잡히기 전에 팬들이 먼저 수요를 증명합니다
+          </Text>
           <View style={{ height: 10, backgroundColor: OC.border, borderRadius: 999, marginTop: S.md, overflow: "hidden" }}>
             <View style={{ width: `${pct}%`, height: "100%", backgroundColor: OC.fan.primary }} />
           </View>
@@ -139,7 +155,7 @@ export function RaceProposalScreen({
               style={{ backgroundColor: OC.accent, borderRadius: 16, paddingVertical: 18, alignItems: "center" }}
             >
               <Text style={{ color: OC.ink, fontWeight: "900", fontSize: 17 }}>
-                core로 참여하기 · {formatDeposit(race.depositAmount)}
+                코어 참여하기 · {formatDeposit(race.depositAmount)}
               </Text>
             </TouchableOpacity>
           ) : (
@@ -224,6 +240,34 @@ export function RaceProposalScreen({
         )}
       </Card>
 
+      {isTicketOpen && assignedVenue ? (
+        <Card border={OC.fan.border}>
+          <SectionLabel>추가 티켓</SectionLabel>
+          <Text style={{ color: OC.text, fontWeight: "800", fontSize: 16 }}>
+            {assignedVenue.name} · 정원 {venueCapacity}
+          </Text>
+          <Text style={{ color: OC.muted, marginTop: S.xs, fontSize: 14, lineHeight: 20 }}>
+            100코어 확보 · 추가 티켓 {remainingTickets}장 · {formatDeposit(race.depositAmount)}
+          </Text>
+          <Text style={{ color: OC.dim, marginTop: S.sm, fontSize: 12, lineHeight: 18 }}>
+            {fanPhaseSubline("ticket_open", race)}
+          </Text>
+          <TouchableOpacity
+            style={{
+              marginTop: S.md,
+              backgroundColor: OC.fan.bg,
+              borderRadius: 14,
+              paddingVertical: 14,
+              alignItems: "center",
+              borderWidth: 1,
+              borderColor: OC.fan.border,
+            }}
+          >
+            <Text style={{ color: OC.accentSoft, fontWeight: "900", fontSize: 15 }}>티켓 보기</Text>
+          </TouchableOpacity>
+        </Card>
+      ) : null}
+
       {inPreparation ? (
         <Card border={OC.fan.border}>
           <SectionLabel>공연 준비 진행</SectionLabel>
@@ -265,6 +309,7 @@ export function RaceProposalScreen({
         <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22 }}>· {TRUST_COPY.payment}</Text>
         <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>· {TRUST_COPY.success}</Text>
         <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>· {TRUST_COPY.venue}</Text>
+        <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>· {TRUST_COPY.wedge}</Text>
         <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>
           · 결제: {race.paymentType === "deposit" ? "예치금" : "전액"} {formatDeposit(race.depositAmount)}
         </Text>

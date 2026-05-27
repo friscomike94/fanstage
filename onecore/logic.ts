@@ -3,6 +3,7 @@ import type {
   CoreCommitment,
   CoreCommitInput,
   DemandScoutCampaign,
+  OnecoreFanPhase,
   OnecoreState,
   Race,
   RaceAdminPhase,
@@ -21,6 +22,15 @@ function nowIso() {
 
 function newId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Fan-visible phase: 100 core threshold ≠ venue capacity */
+export function resolveOnecoreFanPhase(race: Race): OnecoreFanPhase {
+  if (race.status === "ticketing_ready" || race.adminPhase === "ticketing_ready") return "ticket_open";
+  if (race.assignedVenueId && race.venueConfirmationStatus === "confirmed") return "venue_assigned";
+  if (race.artistConfirmationStatus === "confirmed") return "artist_accepted";
+  if (race.currentCount >= race.targetCount) return "threshold_reached";
+  return "collecting_core";
 }
 
 export function mapStatusToAdminPhase(status: RaceStatus): RaceAdminPhase {
