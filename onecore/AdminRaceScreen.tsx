@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Switch } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OnecoreState, Race, RaceDraft, RaceEventLog, RaceOperations, RaceStatus } from "./types";
-import { raceStatusLabel } from "./copy";
+import { adminPhaseLabel, raceStatusLabel } from "./copy";
 import { allStatuses } from "./logic";
 import { DEFAULT_REFUND_POLICY_ID } from "./seed";
 import { OC, OC_SPACE as S } from "./tokens";
@@ -23,11 +23,14 @@ type Props = {
     visibleToPublic: boolean,
     failureKind?: Race["failureKind"]
   ) => void;
+  onSendArtistInvite: (raceId: string) => void;
+  onPreviewArtistInvite: (raceId: string) => void;
 };
 
 const emptyDraft = (): RaceDraft => ({
   title: "",
   artistId: "",
+  targetCity: "서울",
   proposalReason: "",
   targetCount: 100,
   deadline: "2026-12-31",
@@ -54,7 +57,17 @@ const emptyOperations = (): RaceOperations => ({
   refundReviewDate: "",
 });
 
-export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, onUpdateOperations, onStatusChange }: Props) {
+export function AdminRaceScreen({
+  state,
+  adminId,
+  onBack,
+  onCreate,
+  onUpdate,
+  onUpdateOperations,
+  onStatusChange,
+  onSendArtistInvite,
+  onPreviewArtistInvite,
+}: Props) {
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<AdminMode>("list");
   const [selectedId, setSelectedId] = useState(state.races[0]?.id ?? "");
@@ -80,6 +93,7 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
       setDraft({
         title: race.title,
         artistId: race.artistId,
+        targetCity: race.targetCity,
         proposalReason: race.proposalReason,
         targetCount: race.targetCount,
         deadline: race.deadline,
@@ -105,6 +119,7 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
       artistContactTarget: race.artistContactTarget ?? "",
       artistOutreachNote: race.artistOutreachNote ?? "",
       artistResponseDeadline: race.artistResponseDeadline ?? "",
+      shortlistedVenueIds: race.shortlistedVenueIds ?? race.venueCandidateIds.slice(0, 3),
       assignedVenueId: race.assignedVenueId ?? "",
       venueHoldUntil: race.venueHoldUntil ?? "",
       productionCostEstimate: race.productionCostEstimate ?? 0,
@@ -160,6 +175,7 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
             </TouchableOpacity>
           ))}
         </View>
+        <Field label="도시" value={draft.targetCity} onChange={(t) => setDraft((d) => ({ ...d, targetCity: t }))} />
         <Field
           label="제안 이유"
           value={draft.proposalReason}
@@ -274,10 +290,40 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
 
         <OpsStage
           title="2. 공연장 매칭"
-          body="100코어는 자동 배정이 아니라 운영자가 room fit을 판단하는 신호입니다."
-          active={selected.status === "venue_matching"}
+          body="팬·스카우트는 제안만 합니다. 2–3곳으로 좁힌 뒤 아티스트 초대에 노출하고, 최종 홀드는 운영이 확정합니다."
+          active={selected.status === "venue_matching" || selected.status === "artist_reviewing_invite"}
         />
-        <Text style={{ color: OC.dim, fontSize: 12, marginBottom: S.sm }}>배정 공연장</Text>
+        <Text style={{ color: OC.dim, fontSize: 12, marginBottom: S.sm }}>아티스트 초대용 shortlist (2–3곳)</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: S.xs, marginBottom: S.md }}>
+          {state.venueCandidates
+            .filter((v) => selected.venueCandidateIds.includes(v.id))
+            .map((venue) => {
+              const on = operations.shortlistedVenueIds?.includes(venue.id);
+              return (
+                <TouchableOpacity
+                  key={venue.id}
+                  onPress={() =>
+                    setOperations((o) => {
+                      const cur = o.shortlistedVenueIds ?? [];
+                      const next = on ? cur.filter((id) => id !== venue.id) : [...cur, venue.id];
+                      return { ...o, shortlistedVenueIds: next.slice(0, 3) };
+                    })
+                  }
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 10,
+                    backgroundColor: on ? "#422006" : OC.surface,
+                    borderWidth: 1,
+                    borderColor: on ? OC.gold : OC.border,
+                  }}
+                >
+                  <Text style={{ color: OC.text, fontWeight: "800", fontSize: 12 }}>{venue.name}</Text>
+                </TouchableOpacity>
+              );
+            })}
+        </View>
+        <Text style={{ color: OC.dim, fontSize: 12, marginBottom: S.sm }}>최종 배정 (운영 홀드)</Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: S.xs, marginBottom: S.md }}>
           {state.venueCandidates.map((venue) => (
             <TouchableOpacity
@@ -390,7 +436,7 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
     <ScrollView style={{ flex: 1, backgroundColor: OC.bg }} contentContainerStyle={screenContentStyle}>
       <Header title="ONECORE Race Admin" onBack={onBack} />
       <Text style={{ color: OC.muted, marginBottom: S.md, lineHeight: 20 }}>
-        Race 생성/수정 · 상태 변경은 반드시 RaceEventLog에 기록됩니다.
+        수요 증명 후 fanstage가 비공개로 아티스트·공연장을 연결합니다. 상태 변경은 RaceEventLog에 기록됩니다.
       </Text>
       <TouchableOpacity onPress={() => openEdit()} style={[btnPrimary, { marginBottom: S.md }]}>
         <Text style={{ color: OC.ink, fontWeight: "900" }}>+ 새 Race</Text>
@@ -409,10 +455,12 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
               borderColor: OC.border,
             }}
           >
-            <Text style={{ color: OC.gold, fontWeight: "800", fontSize: 11 }}>{raceStatusLabel(race.status)}</Text>
+            <Text style={{ color: OC.gold, fontWeight: "800", fontSize: 11 }}>
+              {adminPhaseLabel(race.adminPhase)} · {raceStatusLabel(race.status)}
+            </Text>
             <Text style={{ color: OC.text, fontWeight: "900", fontSize: 17, marginTop: 4 }}>{race.title}</Text>
             <Text style={{ color: OC.muted, fontSize: 13 }}>
-              {artist?.name} · {race.currentCount}/{race.targetCount} · {race.deadline}
+              {artist?.name} · {race.targetCity} · {race.currentCount}/{race.targetCount}
             </Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: S.xs, marginTop: S.sm }}>
               <TouchableOpacity
@@ -437,6 +485,16 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
               <TouchableOpacity onPress={() => openOps(race)} style={chip}>
                 <Text style={chipText}>운영</Text>
               </TouchableOpacity>
+              {race.currentCount >= race.targetCount ? (
+                <>
+                  <TouchableOpacity onPress={() => onPreviewArtistInvite(race.id)} style={chip}>
+                    <Text style={chipText}>초대 미리보기</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => onSendArtistInvite(race.id)} style={chip}>
+                    <Text style={{ color: OC.gold, fontWeight: "800" as const, fontSize: 12 }}>초대 발송</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
               <TouchableOpacity
                 onPress={() => {
                   setSelectedId(race.id);

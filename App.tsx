@@ -18,15 +18,23 @@ import {
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { AdminRaceScreen } from "./onecore/AdminRaceScreen";
+import { ArtistInviteScreen } from "./onecore/ArtistInviteScreen";
+import { DemandScoutScreen } from "./onecore/DemandScoutScreen";
 import { OnecoreRaceCard } from "./onecore/OnecoreRaceCard";
 import { RaceProposalScreen } from "./onecore/RaceProposalScreen";
 import {
   applyRaceStatusChange,
   artistById,
+  backerCount,
   commitCore,
   createRaceFromDraft,
+  createScoutCampaign,
   getPublicFoundingFans,
+  handoffScoutToAdmin,
+  inviteVenuesForRace,
   refundPolicyById,
+  sendArtistPrivateInvite,
+  submitArtistInvite,
   updateRaceDraft,
   updateRaceOperations,
 } from "./onecore/logic";
@@ -181,7 +189,8 @@ type Overlay =
   | "inviteArtist"
   | "applyBattle"
   | "raceProposal"
-  | "adminRace";
+  | "adminRace"
+  | "artistInvite";
 type BackingStep = "review" | "confirmed";
 type VenueMomentum = "Heating up" | "Almost unlocked" | "Slot won";
 type DistrictFilter = "전체" | "홍대" | "마포" | "이태원" | "성수";
@@ -4630,7 +4639,7 @@ function ProfileScreen({
             style={{ backgroundColor: ROLE.curator.bg, borderRadius: 20, padding: SPACE.md, borderWidth: 1, borderColor: ROLE.curator.border, marginBottom: SPACE.sm }}
           >
             <Text style={{ color: ROLE.curator.primary, fontWeight: "800", textAlign: "center" }}>
-              Curator tools · Approve artists
+              Demand scout · 수요 캠페인 기획
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -5381,6 +5390,8 @@ function AppContent() {
   const [onecoreState, setOnecoreState] = useState<OnecoreState>(() => seedOnecoreState());
   const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
   const [coreCommitError, setCoreCommitError] = useState<string | undefined>();
+  const [artistInviteRaceId, setArtistInviteRaceId] = useState<string | null>(null);
+  const [artistInviteSubmitted, setArtistInviteSubmitted] = useState(false);
 
   const dismissToast = useCallback(() => setToast(null), []);
   const showToast = useCallback((msg: string) => setToast(msg), []);
@@ -5776,17 +5787,72 @@ function AppContent() {
             );
             showToast(`상태 → ${toStatus}`);
           }}
+          onSendArtistInvite={(raceId) => {
+            setOnecoreState((prev) => sendArtistPrivateInvite(prev, raceId, onecoreAdminId));
+            showToast("비공개 아티스트 초대 발송");
+          }}
+          onPreviewArtistInvite={(raceId) => {
+            setArtistInviteRaceId(raceId);
+            setArtistInviteSubmitted(false);
+            setOverlay("artistInvite");
+          }}
+        />
+      );
+    }
+    if (overlay === "artistInvite" && artistInviteRaceId) {
+      const race = onecoreState.races.find((r) => r.id === artistInviteRaceId);
+      const artist = race ? artistById(onecoreState, race.artistId) : undefined;
+      if (!race || !artist) return null;
+      const venues = inviteVenuesForRace(onecoreState, race);
+      return (
+        <ArtistInviteScreen
+          race={race}
+          artist={artist}
+          venues={venues}
+          backerCount={backerCount(onecoreState, race.id)}
+          fanNotes={race.fanNoteSamples ?? []}
+          inviteToken={race.artistInviteToken ?? "preview"}
+          submitted={artistInviteSubmitted || !!race.artistInvite}
+          onBack={closeOverlay}
+          onSubmit={(draft) => {
+            const { state: next, error } = submitArtistInvite(
+              onecoreState,
+              race.id,
+              race.artistInviteToken ?? "preview",
+              draft
+            );
+            if (error) {
+              showToast(error);
+              return;
+            }
+            setOnecoreState(next);
+            setArtistInviteSubmitted(true);
+            showToast("아티스트 응답이 저장되었습니다.");
+          }}
         />
       );
     }
     if (overlay === "curatorTools") {
       return (
-        <CuratorToolsScreen
+        <DemandScoutScreen
+          state={onecoreState}
+          scoutId={onecoreUserId}
           onBack={closeOverlay}
-          artistRoleRequests={artistRoleRequests}
-          approvedArtists={approvedArtists}
-          onApproveArtistRequest={handleApproveArtistRequest}
-          onRejectArtistRequest={handleRejectArtistRequest}
+          onCreateCampaign={(draft) => {
+            setOnecoreState((prev) => createScoutCampaign(prev, onecoreUserId, draft));
+            showToast("수요 캠페인 초안 저장됨");
+          }}
+          onHandoff={(campaignId) => {
+            setOnecoreState((prev) => handoffScoutToAdmin(prev, campaignId, onecoreAdminId));
+            showToast("Admin handoff 기록됨");
+          }}
+          artistApprovalsSlot={
+            <ArtistApprovalQueue
+              requests={artistRoleRequests}
+              onApprove={handleApproveArtistRequest}
+              onReject={handleRejectArtistRequest}
+            />
+          }
         />
       );
     }

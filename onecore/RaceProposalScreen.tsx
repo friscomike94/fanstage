@@ -4,13 +4,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Artist, OnecoreState, Race, RefundPolicy, VenueCandidate } from "./types";
 import {
   buildPreparationSteps,
-  confirmationLabel,
   failureCopy,
   formatCountdown,
   formatDeposit,
+  fanStatusHeadline,
+  fanStatusSubline,
   raceProgressHeadline,
   raceProgressSubline,
-  raceStatusLabel,
   TRUST_COPY,
 } from "./copy";
 import { canFanCommit, isTerminalStatus } from "./logic";
@@ -75,17 +75,7 @@ export function RaceProposalScreen({
   const canCommit = canFanCommit(race);
   const terminal = isTerminalStatus(race.status);
   const failed = race.status === "failed" || race.status === "cancelled" || race.status === "refunded";
-  const inPreparation =
-    race.status === "target_reached" ||
-    race.status === "admin_review" ||
-    race.status === "show_preparation" ||
-    race.status === "artist_contacting" ||
-    race.status === "venue_matching" ||
-    race.status === "confirming_terms" ||
-    race.status === "artist_confirmed" ||
-    race.status === "venue_confirmed" ||
-    race.status === "date_confirmed" ||
-    race.status === "ticketing_ready";
+  const inPreparation = race.currentCount >= race.targetCount || race.status !== "active";
 
   const prepSteps = buildPreparationSteps(race);
   const fail = failed ? failureCopy(race.failureKind, race.failureMessage) : null;
@@ -123,7 +113,7 @@ export function RaceProposalScreen({
 
       {!terminal ? (
         <Card border={OC.gold + "66"}>
-          <Text style={{ color: OC.gold, fontWeight: "900", fontSize: 12 }}>{raceStatusLabel(race.status)}</Text>
+          <Text style={{ color: OC.gold, fontWeight: "900", fontSize: 12 }}>{fanStatusHeadline(race)}</Text>
           <Text style={{ color: OC.text, fontWeight: "900", fontSize: 32, marginTop: S.sm }}>
             {race.currentCount} / {race.targetCount}
           </Text>
@@ -237,9 +227,7 @@ export function RaceProposalScreen({
       {inPreparation ? (
         <Card border={OC.fan.border}>
           <SectionLabel>공연 준비 진행</SectionLabel>
-          <Text style={{ color: OC.fan.soft, fontSize: 14, marginBottom: S.md, lineHeight: 20 }}>
-            목표를 달성했습니다. 지금은 공연 준비 단계예요 — 아직 ‘공연 확정’이 아닙니다.
-          </Text>
+          <Text style={{ color: OC.fan.soft, fontSize: 14, marginBottom: S.md, lineHeight: 20 }}>{fanStatusSubline(race)}</Text>
           {prepSteps.map((step) => (
             <View key={step.id} style={{ flexDirection: "row", alignItems: "center", marginBottom: S.sm }}>
               <Text style={{ color: step.done ? OC.fan.primary : step.active ? OC.gold : OC.dim, fontWeight: "900", width: 22 }}>
@@ -256,14 +244,10 @@ export function RaceProposalScreen({
               </Text>
             </View>
           ))}
-          <View style={{ marginTop: S.md, paddingTop: S.md, borderTopWidth: 1, borderTopColor: OC.border }}>
-            <Text style={{ color: OC.dim, fontSize: 12 }}>아티스트 {confirmationLabel(race.artistConfirmationStatus)}</Text>
-            <Text style={{ color: OC.dim, fontSize: 12, marginTop: 4 }}>
-              공연장 {confirmationLabel(race.venueConfirmationStatus)}
-              {assignedVenue ? ` · ${assignedVenue.name} 검토 중` : ""}
-            </Text>
-            <Text style={{ color: OC.dim, fontSize: 12, marginTop: 4 }}>희망일 {race.preferredDate}</Text>
-          </View>
+          <Text style={{ color: OC.dim, fontSize: 12, marginTop: S.md }}>
+            {TRUST_COPY.venue}
+            {assignedVenue ? ` · ${assignedVenue.name} 후보 검토 중` : ""}
+          </Text>
         </Card>
       ) : null}
 
@@ -280,6 +264,7 @@ export function RaceProposalScreen({
         <SectionLabel>신뢰 · 규칙</SectionLabel>
         <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22 }}>· {TRUST_COPY.payment}</Text>
         <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>· {TRUST_COPY.success}</Text>
+        <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>· {TRUST_COPY.venue}</Text>
         <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>
           · 결제: {race.paymentType === "deposit" ? "예치금" : "전액"} {formatDeposit(race.depositAmount)}
         </Text>
@@ -293,7 +278,7 @@ export function RaceProposalScreen({
         ))}
         {venues.length > 0 ? (
           <Text style={{ color: OC.dim, fontSize: 12, marginTop: S.md }}>
-            공연장 후보: {venues.map((v) => v.name).join(" · ")}
+            참고용 후보 (확정 아님): {venues.map((v) => v.name).join(" · ")}
           </Text>
         ) : null}
         <Text style={{ color: OC.dim, fontSize: 12, marginTop: S.sm }}>성공 후 일정은 희망일 → 백업일 순으로 조율됩니다.</Text>

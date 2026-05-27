@@ -7,6 +7,7 @@ export type RaceStatus =
   | "admin_review"
   | "show_preparation"
   | "artist_contacting"
+  | "artist_reviewing_invite"
   | "venue_matching"
   | "confirming_terms"
   | "artist_confirmed"
@@ -16,6 +17,23 @@ export type RaceStatus =
   | "failed"
   | "cancelled"
   | "refunded";
+
+/** Admin-facing pipeline (maps from RaceStatus; safe to extend without breaking fans) */
+export type RaceAdminPhase =
+  | "collecting_demand"
+  | "demand_proven"
+  | "artist_contacting"
+  | "artist_reviewing_invite"
+  | "venue_matching"
+  | "confirming_terms"
+  | "ticketing_ready"
+  | "refund_or_alternative_review";
+
+export type ArtistInviteResponse = "interested" | "adjust_terms" | "not_available";
+
+export type ScoutConfidence = "low" | "medium" | "high";
+
+export type ScoutHandoffState = "draft" | "rally_live" | "ready_for_admin" | "handed_off";
 
 export type ConfirmationStatus = "pending" | "confirmed" | "unavailable" | "failed";
 
@@ -46,6 +64,9 @@ export type VenueCandidate = {
   district: string;
   capacity: number;
   note?: string;
+  /** Rough ticket band for artist invite economics (admin/artist only) */
+  estimatedTicketMin?: number;
+  estimatedTicketMax?: number;
 };
 
 export type User = {
@@ -95,10 +116,39 @@ export type RaceEventLog = {
   visibleToPublic: boolean;
 };
 
+export type ArtistInviteSubmission = {
+  response: ArtistInviteResponse;
+  preferredDates: string;
+  minGuarantee?: string;
+  minAttendance?: string;
+  productionNeeds?: string;
+  venuePreferenceNotes?: string;
+  preferredVenueCandidateId?: string;
+  notes?: string;
+  submittedAt: string;
+};
+
+export type DemandScoutCampaign = {
+  id: string;
+  scoutId: string;
+  artistId: string;
+  targetCity: string;
+  whyNow: string;
+  estimatedDemand: string;
+  venueSuggestions: string;
+  rallyCopy: string;
+  scoutConfidence: ScoutConfidence;
+  handoffState: ScoutHandoffState;
+  raceId?: string;
+  createdAt: string;
+};
+
 export type Race = {
   id: string;
   title: string;
   artistId: string;
+  targetCity: string;
+  adminPhase: RaceAdminPhase;
   /** 팬이 이 공연 제안의 이유를 이해하게 하는 설명 */
   proposalReason: string;
   targetCount: number;
@@ -112,6 +162,12 @@ export type Race = {
   preferredDate: string;
   backupDates: string[];
   venueCandidateIds: string[];
+  /** Admin narrows to 2–3 for artist invite; fans never confirm venue */
+  shortlistedVenueIds?: string[];
+  fanNoteSamples?: string[];
+  artistInviteToken?: string;
+  artistInviteSentAt?: string;
+  artistInvite?: ArtistInviteSubmission;
   artistConfirmationStatus: ConfirmationStatus;
   venueConfirmationStatus: ConfirmationStatus;
   showPreparationStatus: ShowPreparationStatus;
@@ -137,6 +193,7 @@ export type RaceOperations = Pick<
   | "artistContactTarget"
   | "artistOutreachNote"
   | "artistResponseDeadline"
+  | "shortlistedVenueIds"
   | "assignedVenueId"
   | "venueHoldUntil"
   | "productionCostEstimate"
@@ -151,6 +208,7 @@ export type RaceDraft = Pick<
   Race,
   | "title"
   | "artistId"
+  | "targetCity"
   | "proposalReason"
   | "targetCount"
   | "deadline"
@@ -162,6 +220,12 @@ export type RaceDraft = Pick<
   | "venueCandidateIds"
 >;
 
+export type ScoutCampaignDraft = Omit<DemandScoutCampaign, "id" | "createdAt" | "scoutId" | "handoffState"> & {
+  handoffState?: ScoutHandoffState;
+};
+
+export type ArtistInviteDraft = Omit<ArtistInviteSubmission, "submittedAt">;
+
 export type CoreCommitInput = {
   displayConsent: boolean;
   isAnonymous: boolean;
@@ -172,6 +236,7 @@ export type OnecoreState = {
   artists: Artist[];
   races: Race[];
   venueCandidates: VenueCandidate[];
+  scoutCampaigns: DemandScoutCampaign[];
   users: User[];
   refundPolicies: RefundPolicy[];
   commitments: CoreCommitment[];
