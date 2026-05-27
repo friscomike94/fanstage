@@ -19,6 +19,7 @@ type Props = {
   social?: ArtistSocialProof;
   compact?: boolean;
   sectionLabel?: string;
+  showLabel?: boolean;
 };
 
 export async function openArtistSocialUrl(url: string): Promise<void> {
@@ -34,6 +35,7 @@ export function BattleArtistSocialProof({
   social,
   compact = false,
   sectionLabel = "아티스트 확인하기",
+  showLabel = true,
 }: Props) {
   const links = listSocialLinks(social);
   if (links.length === 0) return null;
@@ -43,9 +45,11 @@ export function BattleArtistSocialProof({
 
   return (
     <View style={{ marginTop: compact ? 8 : 12 }}>
-      <Text style={{ color: PROOF_COLORS.dim, fontSize: 11, fontWeight: "800", letterSpacing: 0.4, marginBottom: 6 }}>
-        {sectionLabel}
-      </Text>
+      {showLabel ? (
+        <Text style={{ color: PROOF_COLORS.dim, fontSize: 11, fontWeight: "800", letterSpacing: 0.4, marginBottom: 6 }}>
+          {sectionLabel}
+        </Text>
+      ) : null}
       <TouchableOpacity
         onPress={() => openArtistSocialUrl(primary.url)}
         activeOpacity={0.85}
@@ -59,7 +63,7 @@ export function BattleArtistSocialProof({
           paddingHorizontal: 14,
           borderWidth: 1,
           borderColor: PROOF_COLORS.primaryBorder,
-          marginBottom: rest.length > 0 ? 8 : 0,
+          marginBottom: rest.length > 0 ? 6 : 0,
         }}
       >
         <Text style={{ color: PROOF_COLORS.text, fontWeight: "800", fontSize: compact ? 13 : 14 }}>
