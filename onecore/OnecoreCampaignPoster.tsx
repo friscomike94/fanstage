@@ -1,23 +1,25 @@
 import React from "react";
 import { View, Text, Image, StyleSheet } from "react-native";
 import type { OnecoreCardVariant } from "./copy";
-import type { ArtistCampaignImage } from "./artistImages";
-import { resolveCampaignImageSource } from "./artistImages";
+import type { CampaignVisualMeta } from "./campaignVisuals";
+import { resolveCampaignVisualSource } from "./campaignVisuals";
 import { OC } from "./tokens";
 
 const POSTER_ASPECT = 16 / 9;
 
 type Props = {
-  image?: ArtistCampaignImage;
+  image?: CampaignVisualMeta;
   variant: OnecoreCardVariant;
   badgeLabel: string;
   badgeColor: string;
 };
 
 export function OnecoreCampaignPoster({ image, variant, badgeLabel, badgeColor }: Props) {
-  const source = resolveCampaignImageSource(image);
+  const source = resolveCampaignVisualSource(image);
   const cropY = image?.cropFocusY ?? 0.5;
-  const dimmer = variant === "reviewing" ? 0.52 : variant === "ticket" ? 0.38 : 0.32;
+  const isIllustration = image?.source === "illustration";
+  const dimmer =
+    (variant === "reviewing" ? 0.52 : variant === "ticket" ? 0.38 : 0.32) + (isIllustration ? 0.1 : 0);
   const tint =
     variant === "ticket" ? "rgba(20, 83, 45, 0.22)" : variant === "reviewing" ? "rgba(15, 23, 42, 0.28)" : "transparent";
 

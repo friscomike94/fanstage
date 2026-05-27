@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { BattleArtistSocialProof } from "../components/BattleArtistSocialProof";
 import type { Artist, OnecoreFanPhase, Race } from "./types";
-import { resolveRaceCampaignImage } from "./artistImages";
+import { resolveRaceCampaignVisual } from "./campaignVisuals";
 import { OnecoreCampaignPoster } from "./OnecoreCampaignPoster";
 import type { OnecoreCardVariant } from "./copy";
 import {
@@ -39,7 +39,7 @@ function CardShell({
   variant: OnecoreCardVariant;
   posterBadge: string;
   posterBadgeColor: string;
-  campaignImage?: ReturnType<typeof resolveRaceCampaignImage>;
+  campaignImage?: ReturnType<typeof resolveRaceCampaignVisual>;
   title: string;
   meta: string;
   children: React.ReactNode;
@@ -109,7 +109,7 @@ function CollectingCard({
   pitch: string | undefined;
   pct: number;
   remaining: number;
-  campaignImage?: ReturnType<typeof resolveRaceCampaignImage>;
+  campaignImage?: ReturnType<typeof resolveRaceCampaignVisual>;
   onPress: () => void;
 }) {
   return (
@@ -172,7 +172,7 @@ function ReviewingCard({
   phase: OnecoreFanPhase;
   pitch: string | undefined;
   pct: number;
-  campaignImage?: ReturnType<typeof resolveRaceCampaignImage>;
+  campaignImage?: ReturnType<typeof resolveRaceCampaignVisual>;
   onPress: () => void;
 }) {
   return (
@@ -242,7 +242,7 @@ function TicketOpenCard({
   venueName: string;
   capacity: number;
   remainingTickets: number;
-  campaignImage?: ReturnType<typeof resolveRaceCampaignImage>;
+  campaignImage?: ReturnType<typeof resolveRaceCampaignVisual>;
   onPress: () => void;
 }) {
   return (
@@ -314,7 +314,7 @@ export function OnecoreRaceCard({ race, artist, venueName, venueCapacity, onPres
   const capacity = venueCapacity ?? 180;
   const remainingTickets = Math.max(0, capacity - race.targetCount);
   const resolvedVenue = venueName ?? "홍대 클럽 FF";
-  const campaignImage = resolveRaceCampaignImage(race, artist);
+  const campaignImage = resolveRaceCampaignVisual({ race, artist, variant });
 
   if (variant === "collecting") {
     return (

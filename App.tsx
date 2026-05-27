@@ -24,6 +24,7 @@ import { AdminRaceScreen } from "./onecore/AdminRaceScreen";
 import { ArtistInviteScreen } from "./onecore/ArtistInviteScreen";
 import { DemandScoutScreen } from "./onecore/DemandScoutScreen";
 import { OnecoreRaceCard } from "./onecore/OnecoreRaceCard";
+import { IllustrationBackdrop } from "./onecore/IllustrationBackdrop";
 import { RaceProposalScreen } from "./onecore/RaceProposalScreen";
 import {
   applyRaceStatusChange,
@@ -2243,26 +2244,33 @@ function HeroBrandingSlide() {
 
 function HeroRulesSlide() {
   return (
-    <HeroSlideShell accent="#422006">
-      <Text style={{ color: C.gold, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>ONECORE</Text>
-      <Text style={{ color: C.text, fontSize: 22, fontWeight: "900", lineHeight: 28, marginTop: 10, letterSpacing: -0.4 }}>
-        {ONECORE_CAMPAIGN_HEADLINE}
-      </Text>
-      <Text style={{ color: ROLE.fan.soft, fontSize: 13, lineHeight: 20, marginTop: 8, marginBottom: SPACE.sm, fontWeight: "600" }}>
-        {ONECORE_THRESHOLD_EXPLAIN}
-      </Text>
-      {[
-        `코어 참여 · 예치금 ${BACKING_PRICE}`,
-        "최소 수요 100코어 달성 → 아티스트 초대",
-        "아티스트 수락 · 베뉴 확정 후 티켓 오픈",
-        "공연이 열리지 않으면 환불",
-      ].map((rule) => (
-        <View key={rule} style={{ flexDirection: "row", marginBottom: 6, alignItems: "flex-start" }}>
-          <Text style={{ color: ROLE.fan.primary, fontWeight: "900", marginRight: 8, fontSize: 12, lineHeight: 18 }}>·</Text>
-          <Text style={{ color: "#cbd5e1", flex: 1, lineHeight: 18, fontSize: 13, fontWeight: "600" }}>{rule}</Text>
-        </View>
-      ))}
-    </HeroSlideShell>
+    <IllustrationBackdrop
+      illustrationKey="onecore-guitar-placeholder"
+      cropFocusY={0.46}
+      height={HERO_HEIGHT}
+      scrimOpacity={0.68}
+    >
+      <View style={{ paddingHorizontal: SPACE.lg, paddingTop: HERO_CONTENT_PAD_TOP, paddingBottom: HERO_CONTENT_PAD_BOTTOM }}>
+        <Text style={{ color: C.gold, fontWeight: "700", fontSize: 10, letterSpacing: 3.2 }}>ONECORE</Text>
+        <Text style={{ color: C.text, fontSize: 22, fontWeight: "900", lineHeight: 28, marginTop: 10, letterSpacing: -0.4 }}>
+          {ONECORE_CAMPAIGN_HEADLINE}
+        </Text>
+        <Text style={{ color: ROLE.fan.soft, fontSize: 13, lineHeight: 20, marginTop: 8, marginBottom: SPACE.sm, fontWeight: "600" }}>
+          {ONECORE_THRESHOLD_EXPLAIN}
+        </Text>
+        {[
+          `코어 참여 · 예치금 ${BACKING_PRICE}`,
+          "최소 수요 100코어 달성 → 아티스트 초대",
+          "아티스트 수락 · 베뉴 확정 후 티켓 오픈",
+          "공연이 열리지 않으면 환불",
+        ].map((rule) => (
+          <View key={rule} style={{ flexDirection: "row", marginBottom: 6, alignItems: "flex-start" }}>
+            <Text style={{ color: ROLE.fan.primary, fontWeight: "900", marginRight: 8, fontSize: 12, lineHeight: 18 }}>·</Text>
+            <Text style={{ color: "#cbd5e1", flex: 1, lineHeight: 18, fontSize: 13, fontWeight: "600" }}>{rule}</Text>
+          </View>
+        ))}
+      </View>
+    </IllustrationBackdrop>
   );
 }
 
@@ -3173,21 +3181,27 @@ function BetaEventBattleBanner({ onOpenCampaign }: { onOpenCampaign: () => void 
   return (
     <View
       style={{
-        backgroundColor: "#1e293b",
         borderRadius: 14,
-        padding: SPACE.md,
         marginBottom: SPACE.md,
         borderWidth: 1,
         borderColor: C.border,
+        overflow: "hidden",
+        backgroundColor: "#1e293b",
       }}
     >
-      <Text style={{ color: C.dim, fontWeight: "800", fontSize: 11, letterSpacing: 0.6 }}>베타 · 공연장 이벤트</Text>
-      <Text style={{ color: C.muted, fontSize: 13, lineHeight: 20, marginTop: 6 }}>
-        fanstage MVP는 ONECORE 캠페인입니다. 다팀 배틀은 향후 큐레이터/공연장용 성장 기능이에요.
-      </Text>
-      <TouchableOpacity onPress={onOpenCampaign} style={{ marginTop: SPACE.sm }}>
-        <Text style={{ color: C.accentSoft, fontWeight: "900", fontSize: 13 }}>ONECORE 캠페인 보기 →</Text>
-      </TouchableOpacity>
+      <IllustrationBackdrop illustrationKey="performance-dancer-placeholder" cropFocusY={0.5} height={88} scrimOpacity={0.72}>
+        <View style={{ paddingHorizontal: SPACE.md, paddingVertical: 10 }}>
+          <Text style={{ color: C.dim, fontWeight: "800", fontSize: 11, letterSpacing: 0.6 }}>베타 · 공연장 이벤트</Text>
+        </View>
+      </IllustrationBackdrop>
+      <View style={{ padding: SPACE.md, paddingTop: SPACE.sm }}>
+        <Text style={{ color: C.muted, fontSize: 13, lineHeight: 20 }}>
+          fanstage MVP는 ONECORE 캠페인입니다. 다팀 배틀은 향후 큐레이터/공연장용 성장 기능이에요.
+        </Text>
+        <TouchableOpacity onPress={onOpenCampaign} style={{ marginTop: SPACE.sm }}>
+          <Text style={{ color: C.accentSoft, fontWeight: "900", fontSize: 13 }}>ONECORE 캠페인 보기 →</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -4800,12 +4814,24 @@ function ProfileScreen({
               style={{
                 backgroundColor: C.surface,
                 borderRadius: 20,
-                padding: SPACE.md,
                 marginBottom: SPACE.lg,
                 borderWidth: 1,
                 borderColor: C.border,
+                overflow: "hidden",
               }}
             >
+              <IllustrationBackdrop
+                illustrationKey="performance-dancer-placeholder"
+                cropFocusY={0.48}
+                height={72}
+                scrimOpacity={0.78}
+                borderRadius={0}
+              >
+                <View style={{ paddingHorizontal: SPACE.md, paddingVertical: 8 }}>
+                  <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>PERFORMANCE · ARTIST</Text>
+                </View>
+              </IllustrationBackdrop>
+              <View style={{ padding: SPACE.md, paddingTop: SPACE.sm }}>
               <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>WANT TO COMPETE ON STAGE?</Text>
               <Text style={{ color: C.text, fontWeight: "800", fontSize: 15, marginTop: SPACE.xs, lineHeight: 22 }}>
                 Apply as an artist to enter venue battles. Fans still back you — you just compete for the slot.
@@ -4846,6 +4872,7 @@ function ProfileScreen({
                   We're reviewing your application. You'll be able to switch to Artist view once approved.
                 </Text>
               ) : null}
+              </View>
             </View>
           ) : (
             <TouchableOpacity
