@@ -7,12 +7,16 @@ import {
   buildPreparationSteps,
   failureCopy,
   fanPhaseLabel,
+  fanPhaseCardHero,
+  fanPhaseReviewingBullets,
   fanPhaseSubline,
+  formatCollectingDeadlineLine,
   formatCountdown,
   formatDeposit,
   fanStatusHeadline,
   fanStatusSubline,
   ONECORE_THRESHOLD_NOTE,
+  resolveOnecoreCardVariant,
   TRUST_COPY,
 } from "./copy";
 import { canFanCommit, isTerminalStatus, resolveOnecoreFanPhase } from "./logic";
@@ -84,9 +88,12 @@ export function RaceProposalScreen({
   const assignedVenue = venues.find((v) => v.id === race.assignedVenueId);
   const fanPhase = resolveOnecoreFanPhase(race);
   const pitch = artist.battlePitch ?? race.proposalReason;
-  const isTicketOpen = fanPhase === "ticket_open";
+  const cardVariant = resolveOnecoreCardVariant(fanPhase);
+  const isTicketOpen = cardVariant === "ticket";
+  const isReviewing = cardVariant === "reviewing";
   const venueCapacity = assignedVenue?.capacity ?? 180;
   const remainingTickets = Math.max(0, venueCapacity - race.targetCount);
+  const venueDisplayName = assignedVenue?.name ?? "홍대 클럽 FF";
 
   return (
     <ScrollView
@@ -125,24 +132,67 @@ export function RaceProposalScreen({
       </Card>
 
       {!terminal ? (
-        <Card border={OC.gold + "66"}>
-          <Text style={{ color: OC.gold, fontWeight: "900", fontSize: 12 }}>{fanStatusHeadline(race)}</Text>
-          <Text style={{ color: OC.text, fontWeight: "900", fontSize: 32, marginTop: S.sm }}>
-            {race.currentCount} / {race.targetCount}
-          </Text>
-          <Text style={{ color: OC.dim, fontSize: 12, marginTop: 2 }}>최소 수요 100코어</Text>
-          <Text style={{ color: OC.text, fontSize: 17, fontWeight: "800", marginTop: S.xs, lineHeight: 24 }}>
-            {fanPhaseSubline(fanPhase, race)}
-          </Text>
-          <Text style={{ color: OC.muted, marginTop: S.xs, fontSize: 14, lineHeight: 20 }}>
-            공연이 잡히기 전에 팬들이 먼저 수요를 증명합니다
-          </Text>
-          <View style={{ height: 10, backgroundColor: OC.border, borderRadius: 999, marginTop: S.md, overflow: "hidden" }}>
-            <View style={{ width: `${pct}%`, height: "100%", backgroundColor: OC.fan.primary }} />
-          </View>
-          <Text style={{ color: OC.dim, marginTop: S.md, fontSize: 12 }}>
-            마감 {race.deadline} · {formatCountdown(race.deadlineCountdown)}
-          </Text>
+        <Card border={isTicketOpen ? OC.fan.border : OC.gold + "66"}>
+          {isTicketOpen ? (
+            <>
+              <Text style={{ color: OC.accentSoft, fontWeight: "800", fontSize: 11 }}>100코어 확보</Text>
+              <Text style={{ color: OC.accentSoft, fontWeight: "900", fontSize: 28, marginTop: S.sm, lineHeight: 34 }}>
+                {fanPhaseCardHero(fanPhase, race, remainingTickets)}
+              </Text>
+              <Text style={{ color: OC.text, fontWeight: "800", fontSize: 16, marginTop: S.sm }}>
+                {venueDisplayName} · 정원 {venueCapacity}
+              </Text>
+              <Text style={{ color: OC.muted, fontSize: 14, marginTop: S.xs }}>
+                가격 {formatDeposit(race.depositAmount)} · 추가 티켓 {remainingTickets}장
+              </Text>
+              <Text style={{ color: OC.muted, marginTop: S.sm, fontSize: 13, lineHeight: 20 }}>
+                {fanPhaseSubline(fanPhase, race)}
+              </Text>
+            </>
+          ) : isReviewing ? (
+            <>
+              <Text style={{ color: OC.gold, fontWeight: "900", fontSize: 12 }}>최소 수요 증명 완료</Text>
+              <Text style={{ color: OC.text, fontWeight: "900", fontSize: 24, marginTop: S.sm, lineHeight: 30 }}>
+                {fanPhaseCardHero(fanPhase, race)}
+              </Text>
+              <Text style={{ color: OC.muted, fontSize: 14, marginTop: S.xs, lineHeight: 20 }}>
+                {fanPhaseSubline(fanPhase, race)}
+              </Text>
+              {fanPhaseReviewingBullets().map((line) => (
+                <Text key={line} style={{ color: OC.dim, fontSize: 12, marginTop: 4, lineHeight: 18 }}>
+                  · {line}
+                </Text>
+              ))}
+              <View style={{ marginTop: S.md, opacity: 0.55 }}>
+                <View style={{ height: 6, backgroundColor: OC.border, borderRadius: 999, overflow: "hidden" }}>
+                  <View style={{ width: `${pct}%`, height: "100%", backgroundColor: OC.gold }} />
+                </View>
+                <Text style={{ color: OC.dim, fontSize: 11, marginTop: 4 }}>
+                  {race.currentCount} / {race.targetCount} core
+                </Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={{ color: OC.gold, fontWeight: "900", fontSize: 12 }}>{fanStatusHeadline(race)}</Text>
+              <Text style={{ color: OC.text, fontWeight: "900", fontSize: 32, marginTop: S.sm }}>
+                {fanPhaseCardHero(fanPhase, race)}
+              </Text>
+              <Text style={{ color: OC.gold, fontWeight: "800", fontSize: 16, marginTop: 4 }}>
+                {remaining}코어 남음
+              </Text>
+              <Text style={{ color: OC.muted, fontSize: 15, marginTop: S.xs, lineHeight: 22 }}>
+                {fanPhaseSubline(fanPhase, race)}
+              </Text>
+              <Text style={{ color: OC.dim, marginTop: S.xs, fontSize: 13, lineHeight: 19 }}>
+                공연이 잡히기 전에 팬들이 먼저 수요를 증명합니다
+              </Text>
+              <View style={{ height: 10, backgroundColor: OC.border, borderRadius: 999, marginTop: S.md, overflow: "hidden" }}>
+                <View style={{ width: `${pct}%`, height: "100%", backgroundColor: OC.fan.primary }} />
+              </View>
+              <Text style={{ color: OC.dim, marginTop: S.md, fontSize: 12 }}>{formatCollectingDeadlineLine(race)}</Text>
+            </>
+          )}
         </Card>
       ) : null}
 

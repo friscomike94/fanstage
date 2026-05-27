@@ -16,13 +16,43 @@ export function fanPhaseLabel(phase: OnecoreFanPhase): string {
   return map[phase];
 }
 
+export type OnecoreCardVariant = "collecting" | "reviewing" | "ticket";
+
+export function resolveOnecoreCardVariant(phase: OnecoreFanPhase): OnecoreCardVariant {
+  if (phase === "collecting_core") return "collecting";
+  if (phase === "ticket_open") return "ticket";
+  return "reviewing";
+}
+
+/** One hero line per discover card — no duplicate 100/100 on reviewing/ticket */
+export function fanPhaseCardHero(phase: OnecoreFanPhase, race: Race, remainingTickets = 0): string {
+  if (phase === "collecting_core") return `${race.currentCount} / ${race.targetCount} core`;
+  if (phase === "ticket_open") return `추가 티켓 ${remainingTickets}장 오픈`;
+  if (phase === "artist_accepted") return "베뉴 매칭 중";
+  if (phase === "venue_assigned") return "티켓 오픈 준비 중";
+  return "아티스트 초대장 검토 중";
+}
+
+export function fanPhaseReviewingBullets(): readonly string[] {
+  return [
+    "최소 수요가 증명됐어요",
+    "아직 티켓 판매 단계는 아니에요",
+    "아티스트 수락 후 베뉴 매칭으로 넘어갑니다",
+  ];
+}
+
+export function formatCollectingDeadlineLine(race: Race): string {
+  const remaining = Math.max(0, race.targetCount - race.currentCount);
+  return `${formatCountdown(race.deadlineCountdown)} · ${remaining}코어 남음`;
+}
+
 export function fanPhaseSubline(phase: OnecoreFanPhase, race: Race): string {
   const remaining = Math.max(0, race.targetCount - race.currentCount);
   switch (phase) {
     case "collecting_core":
       return `${remaining}코어 더 모이면 아티스트 초대 단계로 넘어갑니다`;
     case "threshold_reached":
-      return "최소 수요가 증명됐어요. fanstage가 아티스트와 공연 조건을 확인합니다.";
+      return "fanstage가 아티스트와 공연 조건을 확인합니다";
     case "artist_accepted":
       return "아티스트 수락 후 좌석/티켓 수량이 열려요. 베뉴 매칭 중입니다.";
     case "venue_assigned":
