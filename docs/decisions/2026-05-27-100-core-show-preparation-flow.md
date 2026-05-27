@@ -55,6 +55,16 @@ Admin should manually shortlist 2-3 venues based on:
 - Age policy and safety conditions
 - Ticket split, F&B, merch, and settlement rules
 
+## Admin Operations
+
+The admin flow now records the three post-threshold work streams directly on the race:
+
+- `artist_contacting`: contact channel, target handle/address, outreach note, artist response deadline.
+- `venue_matching`: assigned venue candidate and venue hold deadline.
+- `confirming_terms`: production cost estimate, minimum ticket price, scout fee, platform fee, terms note, and refund review date.
+
+Internal economics and outreach notes stay admin-only. Fan-facing screens may show that a venue is being reviewed, but should not expose scout/platform percentages or negotiation notes.
+
 ## Economics
 
 Recommended model: cost-first waterfall, then artist-favorable split.
@@ -86,3 +96,13 @@ Recommended ranges:
 - Do not hold fan money indefinitely; unresolved campaigns need refund review around 21-30 days.
 - Venue choice is operational risk, not decoration.
 - Scout and platform compensation must not leave the artist as the least protected party.
+
+## Expo SDK 54 Audit Handling
+
+Do not use `npm audit fix --force` for the current moderate audit warnings because it upgrades Expo to SDK 56 and changes the project surface.
+
+The SDK 54-compatible fix is:
+
+- Use npm `overrides` to resolve transitive `postcss` to `^8.5.10`.
+- Use npm `overrides` to resolve transitive `uuid` to `^11.1.1`.
+- Verify with `npm audit`, `npx tsc --noEmit`, `npx expo-doctor`, and `npx expo export --platform web`.

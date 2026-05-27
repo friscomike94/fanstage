@@ -1,13 +1,13 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Switch } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { OnecoreState, Race, RaceDraft, RaceEventLog, RaceStatus } from "./types";
+import type { OnecoreState, Race, RaceDraft, RaceEventLog, RaceOperations, RaceStatus } from "./types";
 import { raceStatusLabel } from "./copy";
 import { allStatuses } from "./logic";
 import { DEFAULT_REFUND_POLICY_ID } from "./seed";
 import { OC, OC_SPACE as S } from "./tokens";
 
-type AdminMode = "list" | "edit" | "status" | "logs";
+type AdminMode = "list" | "edit" | "status" | "ops" | "logs";
 
 type Props = {
   state: OnecoreState;
@@ -15,6 +15,7 @@ type Props = {
   onBack: () => void;
   onCreate: (draft: RaceDraft, publishActive: boolean) => void;
   onUpdate: (raceId: string, draft: Partial<RaceDraft>) => void;
+  onUpdateOperations: (raceId: string, operations: Partial<RaceOperations>) => void;
   onStatusChange: (
     raceId: string,
     toStatus: RaceStatus,
@@ -38,7 +39,22 @@ const emptyDraft = (): RaceDraft => ({
   venueCandidateIds: [],
 });
 
-export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, onStatusChange }: Props) {
+const emptyOperations = (): RaceOperations => ({
+  artistContactChannel: "instagram_dm",
+  artistContactTarget: "",
+  artistOutreachNote: "",
+  artistResponseDeadline: "",
+  assignedVenueId: "",
+  venueHoldUntil: "",
+  productionCostEstimate: 0,
+  scoutFeePercent: 3,
+  platformFeePercent: 8,
+  minTicketPrice: 35000,
+  termsNote: "",
+  refundReviewDate: "",
+});
+
+export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, onUpdateOperations, onStatusChange }: Props) {
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<AdminMode>("list");
   const [selectedId, setSelectedId] = useState(state.races[0]?.id ?? "");
@@ -46,6 +62,7 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
   const [statusTo, setStatusTo] = useState<RaceStatus>("active");
   const [statusReason, setStatusReason] = useState("");
   const [statusPublic, setStatusPublic] = useState(true);
+  const [operations, setOperations] = useState<RaceOperations>(emptyOperations());
   const [isNew, setIsNew] = useState(false);
 
   const selected = state.races.find((r) => r.id === selectedId);
@@ -79,6 +96,25 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
       if (state.artists[0]) setDraft((d) => ({ ...d, artistId: state.artists[0].id }));
     }
     setMode("edit");
+  };
+
+  const openOps = (race: Race) => {
+    setSelectedId(race.id);
+    setOperations({
+      artistContactChannel: race.artistContactChannel ?? "instagram_dm",
+      artistContactTarget: race.artistContactTarget ?? "",
+      artistOutreachNote: race.artistOutreachNote ?? "",
+      artistResponseDeadline: race.artistResponseDeadline ?? "",
+      assignedVenueId: race.assignedVenueId ?? "",
+      venueHoldUntil: race.venueHoldUntil ?? "",
+      productionCostEstimate: race.productionCostEstimate ?? 0,
+      scoutFeePercent: race.scoutFeePercent ?? 3,
+      platformFeePercent: race.platformFeePercent ?? 8,
+      minTicketPrice: race.minTicketPrice ?? 35000,
+      termsNote: race.termsNote ?? "",
+      refundReviewDate: race.refundReviewDate ?? "",
+    });
+    setMode("ops");
   };
 
   const saveDraft = () => {
@@ -200,6 +236,143 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
     );
   }
 
+  if (mode === "ops" && selected) {
+    const assignedVenue = state.venueCandidates.find((v) => v.id === operations.assignedVenueId);
+
+    return (
+      <ScrollView style={{ flex: 1, backgroundColor: OC.bg }} contentContainerStyle={screenContentStyle}>
+        <Header title="운영 플로우" onBack={() => setMode("list")} />
+        <Text style={{ color: OC.muted, marginBottom: S.md, lineHeight: 20 }}>
+          {selected.title} · {raceStatusLabel(selected.status)}
+        </Text>
+
+        <OpsStage
+          title="1. 아티스트 연락"
+          body="공개 압박이 아니라 private invitation으로 시작합니다."
+          active={selected.status === "artist_contacting"}
+        />
+        <ChannelPicker
+          value={operations.artistContactChannel ?? "instagram_dm"}
+          onChange={(artistContactChannel) => setOperations((o) => ({ ...o, artistContactChannel }))}
+        />
+        <Field
+          label="연락 대상"
+          value={operations.artistContactTarget ?? ""}
+          onChange={(artistContactTarget) => setOperations((o) => ({ ...o, artistContactTarget }))}
+        />
+        <Field
+          label="아티스트 응답 마감"
+          value={operations.artistResponseDeadline ?? ""}
+          onChange={(artistResponseDeadline) => setOperations((o) => ({ ...o, artistResponseDeadline }))}
+        />
+        <Field
+          label="아티스트 연락 메모"
+          value={operations.artistOutreachNote ?? ""}
+          onChange={(artistOutreachNote) => setOperations((o) => ({ ...o, artistOutreachNote }))}
+          multiline
+        />
+
+        <OpsStage
+          title="2. 공연장 매칭"
+          body="100코어는 자동 배정이 아니라 운영자가 room fit을 판단하는 신호입니다."
+          active={selected.status === "venue_matching"}
+        />
+        <Text style={{ color: OC.dim, fontSize: 12, marginBottom: S.sm }}>배정 공연장</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: S.xs, marginBottom: S.md }}>
+          {state.venueCandidates.map((venue) => (
+            <TouchableOpacity
+              key={venue.id}
+              onPress={() => setOperations((o) => ({ ...o, assignedVenueId: venue.id }))}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 10,
+                backgroundColor: operations.assignedVenueId === venue.id ? OC.fan.bg : OC.surface,
+                borderWidth: 1,
+                borderColor: operations.assignedVenueId === venue.id ? OC.fan.border : OC.border,
+              }}
+            >
+              <Text style={{ color: OC.text, fontWeight: "800", fontSize: 12 }}>{venue.name}</Text>
+              <Text style={{ color: OC.dim, fontSize: 10, marginTop: 2 }}>
+                {venue.district} · {venue.capacity}명
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Field
+          label="베뉴 hold 만료"
+          value={operations.venueHoldUntil ?? ""}
+          onChange={(venueHoldUntil) => setOperations((o) => ({ ...o, venueHoldUntil }))}
+        />
+
+        <OpsStage
+          title="3. 조건 확인"
+          body="베뉴/제작비를 먼저 빼고도 아티스트 payout이 살아있는지 확인합니다."
+          active={selected.status === "confirming_terms"}
+        />
+        <Field
+          label="제작/설치/정리 예상비"
+          value={String(operations.productionCostEstimate ?? 0)}
+          onChange={(t) => setOperations((o) => ({ ...o, productionCostEstimate: parseInt(t, 10) || 0 }))}
+          keyboard="numeric"
+        />
+        <Field
+          label="최소 티켓가"
+          value={String(operations.minTicketPrice ?? 0)}
+          onChange={(t) => setOperations((o) => ({ ...o, minTicketPrice: parseInt(t, 10) || 0 }))}
+          keyboard="numeric"
+        />
+        <View style={{ flexDirection: "row", gap: S.sm }}>
+          <View style={{ flex: 1 }}>
+            <Field
+              label="Scout %"
+              value={String(operations.scoutFeePercent ?? 0)}
+              onChange={(t) => setOperations((o) => ({ ...o, scoutFeePercent: parseFloat(t) || 0 }))}
+              keyboard="numeric"
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Field
+              label="Platform %"
+              value={String(operations.platformFeePercent ?? 0)}
+              onChange={(t) => setOperations((o) => ({ ...o, platformFeePercent: parseFloat(t) || 0 }))}
+              keyboard="numeric"
+            />
+          </View>
+        </View>
+        <Field
+          label="조건 메모"
+          value={operations.termsNote ?? ""}
+          onChange={(termsNote) => setOperations((o) => ({ ...o, termsNote }))}
+          multiline
+        />
+        <Field
+          label="환불 검토일"
+          value={operations.refundReviewDate ?? ""}
+          onChange={(refundReviewDate) => setOperations((o) => ({ ...o, refundReviewDate }))}
+        />
+
+        <View style={{ backgroundColor: OC.surface, borderRadius: 14, padding: S.md, marginBottom: S.md, borderWidth: 1, borderColor: OC.border }}>
+          <Text style={{ color: OC.gold, fontWeight: "900", fontSize: 12 }}>운영 요약</Text>
+          <Text style={{ color: OC.text, fontWeight: "800", marginTop: 6 }}>{assignedVenue?.name ?? "공연장 미배정"}</Text>
+          <Text style={{ color: OC.dim, fontSize: 12, marginTop: 4 }}>
+            Scout {operations.scoutFeePercent ?? 0}% · Platform {operations.platformFeePercent ?? 0}% · 티켓 {operations.minTicketPrice ?? 0}원
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          onPress={() => {
+            onUpdateOperations(selectedId, operations);
+            setMode("list");
+          }}
+          style={btnPrimary}
+        >
+          <Text style={{ color: OC.ink, fontWeight: "900" }}>운영 플로우 저장</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  }
+
   if (mode === "logs") {
     return (
       <ScrollView style={{ flex: 1, backgroundColor: OC.bg }} contentContainerStyle={screenContentStyle}>
@@ -260,6 +433,9 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
                 style={chip}
               >
                 <Text style={chipText}>상태</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => openOps(race)} style={chip}>
+                <Text style={chipText}>운영</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => {
@@ -326,6 +502,61 @@ function Field({
           minHeight: multiline ? 80 : undefined,
         }}
       />
+    </View>
+  );
+}
+
+function ChannelPicker({
+  value,
+  onChange,
+}: {
+  value: NonNullable<Race["artistContactChannel"]>;
+  onChange: (value: NonNullable<Race["artistContactChannel"]>) => void;
+}) {
+  const channels: { id: NonNullable<Race["artistContactChannel"]>; label: string }[] = [
+    { id: "official_email", label: "공식 이메일" },
+    { id: "instagram_dm", label: "Instagram DM" },
+    { id: "agency", label: "소속사" },
+    { id: "other", label: "기타" },
+  ];
+
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: S.xs, marginBottom: S.md }}>
+      {channels.map((channel) => (
+        <TouchableOpacity
+          key={channel.id}
+          onPress={() => onChange(channel.id)}
+          style={{
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            borderRadius: 10,
+            backgroundColor: value === channel.id ? OC.gold + "33" : OC.surface,
+            borderWidth: 1,
+            borderColor: value === channel.id ? OC.gold : OC.border,
+          }}
+        >
+          <Text style={{ color: OC.text, fontWeight: "800", fontSize: 12 }}>{channel.label}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+function OpsStage({ title, body, active }: { title: string; body: string; active: boolean }) {
+  return (
+    <View
+      style={{
+        backgroundColor: active ? OC.fan.bg : OC.card,
+        borderRadius: 14,
+        padding: S.md,
+        marginTop: S.md,
+        marginBottom: S.md,
+        borderWidth: 1,
+        borderColor: active ? OC.fan.border : OC.border,
+      }}
+    >
+      <Text style={{ color: active ? OC.fan.primary : OC.gold, fontWeight: "900" }}>{title}</Text>
+      <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 19, marginTop: 4 }}>{body}</Text>
     </View>
   );
 }

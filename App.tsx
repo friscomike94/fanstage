@@ -28,6 +28,7 @@ import {
   getPublicFoundingFans,
   refundPolicyById,
   updateRaceDraft,
+  updateRaceOperations,
 } from "./onecore/logic";
 import { seedOnecoreState } from "./onecore/seed";
 import type { OnecoreState, Race, RaceDraft, RaceStatus } from "./onecore/types";
@@ -5761,6 +5762,10 @@ function AppContent() {
           onUpdate={(raceId, partial) => {
             setOnecoreState((prev) => updateRaceDraft(prev, raceId, partial, onecoreAdminId));
             showToast("Race 수정됨");
+          }}
+          onUpdateOperations={(raceId, operations) => {
+            setOnecoreState((prev) => updateRaceOperations(prev, raceId, operations, onecoreAdminId));
+            showToast("운영 플로우 저장됨");
           }}
           onStatusChange={(raceId, toStatus, reason, visibleToPublic, failureKind) => {
             setOnecoreState((prev) =>

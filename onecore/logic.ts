@@ -5,6 +5,7 @@ import type {
   Race,
   RaceDraft,
   RaceEventLog,
+  RaceOperations,
   RaceStatus,
 } from "./types";
 
@@ -202,6 +203,21 @@ export function updateRaceDraft(state: OnecoreState, raceId: string, draft: Part
   );
 
   const log = createEventLog(raceId, adminId, race.status, race.status, "라운드 정보 수정", false);
+
+  return { ...state, races, eventLogs: [log, ...state.eventLogs] };
+}
+
+export function updateRaceOperations(
+  state: OnecoreState,
+  raceId: string,
+  operations: Partial<RaceOperations>,
+  adminId: string
+): OnecoreState {
+  const race = state.races.find((r) => r.id === raceId);
+  if (!race) return state;
+
+  const races = state.races.map((r) => (r.id === raceId ? { ...r, ...operations } : r));
+  const log = createEventLog(raceId, adminId, race.status, race.status, "운영 플로우 업데이트", false);
 
   return { ...state, races, eventLogs: [log, ...state.eventLogs] };
 }

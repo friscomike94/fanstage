@@ -89,6 +89,7 @@ export function RaceProposalScreen({
 
   const prepSteps = buildPreparationSteps(race);
   const fail = failed ? failureCopy(race.failureKind, race.failureMessage) : null;
+  const assignedVenue = venues.find((v) => v.id === race.assignedVenueId);
 
   return (
     <ScrollView
@@ -257,7 +258,10 @@ export function RaceProposalScreen({
           ))}
           <View style={{ marginTop: S.md, paddingTop: S.md, borderTopWidth: 1, borderTopColor: OC.border }}>
             <Text style={{ color: OC.dim, fontSize: 12 }}>아티스트 {confirmationLabel(race.artistConfirmationStatus)}</Text>
-            <Text style={{ color: OC.dim, fontSize: 12, marginTop: 4 }}>공연장 {confirmationLabel(race.venueConfirmationStatus)}</Text>
+            <Text style={{ color: OC.dim, fontSize: 12, marginTop: 4 }}>
+              공연장 {confirmationLabel(race.venueConfirmationStatus)}
+              {assignedVenue ? ` · ${assignedVenue.name} 검토 중` : ""}
+            </Text>
             <Text style={{ color: OC.dim, fontSize: 12, marginTop: 4 }}>희망일 {race.preferredDate}</Text>
           </View>
         </Card>

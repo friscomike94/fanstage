@@ -115,9 +115,37 @@ export type Race = {
   artistConfirmationStatus: ConfirmationStatus;
   venueConfirmationStatus: ConfirmationStatus;
   showPreparationStatus: ShowPreparationStatus;
+  artistContactChannel?: "official_email" | "instagram_dm" | "agency" | "other";
+  artistContactTarget?: string;
+  artistOutreachNote?: string;
+  artistResponseDeadline?: string;
+  assignedVenueId?: string;
+  venueHoldUntil?: string;
+  productionCostEstimate?: number;
+  scoutFeePercent?: number;
+  platformFeePercent?: number;
+  minTicketPrice?: number;
+  termsNote?: string;
+  refundReviewDate?: string;
   failureKind?: FailureKind;
   failureMessage?: string;
 };
+
+export type RaceOperations = Pick<
+  Race,
+  | "artistContactChannel"
+  | "artistContactTarget"
+  | "artistOutreachNote"
+  | "artistResponseDeadline"
+  | "assignedVenueId"
+  | "venueHoldUntil"
+  | "productionCostEstimate"
+  | "scoutFeePercent"
+  | "platformFeePercent"
+  | "minTicketPrice"
+  | "termsNote"
+  | "refundReviewDate"
+>;
 
 export type RaceDraft = Pick<
   Race,
