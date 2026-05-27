@@ -2,10 +2,12 @@ import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { BattleArtistSocialProof } from "../components/BattleArtistSocialProof";
 import type { Artist, OnecoreFanPhase, Race } from "./types";
+import { resolveRaceCampaignImage } from "./artistImages";
+import { OnecoreCampaignPoster } from "./OnecoreCampaignPoster";
+import type { OnecoreCardVariant } from "./copy";
 import {
   fanPhaseLabel,
   fanPhaseCardHero,
-  fanPhaseReviewingBullets,
   fanPhaseSubline,
   formatCollectingDeadlineLine,
   formatDeposit,
@@ -24,16 +26,20 @@ type Props = {
 
 function CardShell({
   borderColor,
-  label,
-  labelColor,
+  variant,
+  posterBadge,
+  posterBadgeColor,
+  campaignImage,
   title,
   meta,
   children,
   onPress,
 }: {
   borderColor: string;
-  label: string;
-  labelColor: string;
+  variant: OnecoreCardVariant;
+  posterBadge: string;
+  posterBadgeColor: string;
+  campaignImage?: ReturnType<typeof resolveRaceCampaignImage>;
   title: string;
   meta: string;
   children: React.ReactNode;
@@ -46,20 +52,27 @@ function CardShell({
       style={{
         backgroundColor: OC.card,
         borderRadius: 18,
-        padding: S.md,
         marginBottom: S.md,
         borderWidth: 1.5,
         borderColor,
+        overflow: "hidden",
       }}
     >
-      <Text style={{ color: labelColor, fontWeight: "900", fontSize: 10, letterSpacing: 1 }}>{label}</Text>
-      <Text style={{ color: OC.text, fontWeight: "900", fontSize: 17, marginTop: 4, lineHeight: 22 }} numberOfLines={2}>
-        {title}
-      </Text>
-      <Text style={{ color: OC.muted, fontSize: 12, marginTop: 3 }} numberOfLines={1}>
-        {meta}
-      </Text>
-      {children}
+      <OnecoreCampaignPoster
+        image={campaignImage}
+        variant={variant}
+        badgeLabel={posterBadge}
+        badgeColor={posterBadgeColor}
+      />
+      <View style={{ paddingHorizontal: S.md, paddingTop: S.sm, paddingBottom: S.md }}>
+        <Text style={{ color: OC.text, fontWeight: "900", fontSize: 16, lineHeight: 21 }} numberOfLines={2}>
+          {title}
+        </Text>
+        <Text style={{ color: OC.muted, fontSize: 11, marginTop: 3 }} numberOfLines={1}>
+          {meta}
+        </Text>
+        {children}
+      </View>
     </TouchableOpacity>
   );
 }
@@ -87,6 +100,7 @@ function CollectingCard({
   pitch,
   pct,
   remaining,
+  campaignImage,
   onPress,
 }: {
   race: Race;
@@ -95,36 +109,37 @@ function CollectingCard({
   pitch: string | undefined;
   pct: number;
   remaining: number;
+  campaignImage?: ReturnType<typeof resolveRaceCampaignImage>;
   onPress: () => void;
 }) {
   return (
     <CardShell
       onPress={onPress}
+      variant="collecting"
       borderColor={OC.gold + "66"}
-      label="ONECORE"
-      labelColor={OC.gold}
+      posterBadge="ONECORE"
+      posterBadgeColor={OC.gold}
+      campaignImage={campaignImage}
       title={race.title}
       meta={`${artist.name} · ${artist.genre} · ${fanPhaseLabel(phase)}`}
     >
-      <Text style={{ color: OC.text, fontWeight: "900", fontSize: 26, marginTop: S.sm, letterSpacing: -0.5 }}>
+      <Text style={{ color: OC.text, fontWeight: "900", fontSize: 24, marginTop: S.sm, letterSpacing: -0.5 }}>
         {fanPhaseCardHero(phase, race)}
       </Text>
-      <Text style={{ color: OC.gold, fontWeight: "800", fontSize: 15, marginTop: 4 }}>{remaining}코어 남음</Text>
+      <Text style={{ color: OC.gold, fontWeight: "800", fontSize: 14, marginTop: 2 }}>{remaining}코어 남음</Text>
 
       {pitch ? (
-        <Text style={{ color: "#cbd5e1", fontSize: 13, lineHeight: 19, marginTop: S.sm }} numberOfLines={2}>
+        <Text style={{ color: "#cbd5e1", fontSize: 12, lineHeight: 17, marginTop: S.sm }} numberOfLines={1}>
           {pitch}
         </Text>
       ) : null}
 
-      <BattleArtistSocialProof social={artist.social} sectionLabel="아티스트 확인하기" />
-
-      <Text style={{ color: OC.muted, fontSize: 12, marginTop: S.sm, lineHeight: 17 }}>{fanPhaseSubline(phase, race)}</Text>
+      <BattleArtistSocialProof social={artist.social} compact sectionLabel="아티스트 확인하기" />
 
       <View style={{ marginTop: S.sm }}>
         <ProgressBar pct={pct} fillColor={OC.fan.primary} />
       </View>
-      <Text style={{ color: OC.dim, fontSize: 11, marginTop: 6 }}>{formatCollectingDeadlineLine(race)}</Text>
+      <Text style={{ color: OC.dim, fontSize: 11, marginTop: 5 }}>{formatCollectingDeadlineLine(race)}</Text>
 
       <View
         style={{
@@ -149,6 +164,7 @@ function ReviewingCard({
   phase,
   pitch,
   pct,
+  campaignImage,
   onPress,
 }: {
   race: Race;
@@ -156,56 +172,40 @@ function ReviewingCard({
   phase: OnecoreFanPhase;
   pitch: string | undefined;
   pct: number;
+  campaignImage?: ReturnType<typeof resolveRaceCampaignImage>;
   onPress: () => void;
 }) {
-  const bullets = fanPhaseReviewingBullets();
   return (
     <CardShell
       onPress={onPress}
+      variant="reviewing"
       borderColor={OC.gold + "55"}
-      label="ONECORE"
-      labelColor={OC.gold}
+      posterBadge="최소 수요 증명 완료"
+      posterBadgeColor={OC.gold}
+      campaignImage={campaignImage}
       title={race.title}
       meta={`${artist.name} · ${artist.genre}`}
     >
-      <View
-        style={{
-          alignSelf: "flex-start",
-          marginTop: S.sm,
-          paddingHorizontal: 10,
-          paddingVertical: 4,
-          borderRadius: 999,
-          backgroundColor: OC.gold + "22",
-          borderWidth: 1,
-          borderColor: OC.gold + "55",
-        }}
-      >
-        <Text style={{ color: OC.gold, fontWeight: "900", fontSize: 11 }}>최소 수요 증명 완료</Text>
-      </View>
-
-      <Text style={{ color: OC.text, fontWeight: "900", fontSize: 20, marginTop: S.sm, lineHeight: 26 }}>
+      <Text style={{ color: OC.text, fontWeight: "900", fontSize: 19, marginTop: S.sm, lineHeight: 25 }}>
         {fanPhaseCardHero(phase, race)}
       </Text>
       <Text style={{ color: OC.muted, fontSize: 12, marginTop: 4, lineHeight: 17 }}>{fanPhaseSubline(phase, race)}</Text>
-
-      {bullets.map((line) => (
-        <Text key={line} style={{ color: OC.dim, fontSize: 11, marginTop: 4, lineHeight: 16 }}>
-          · {line}
-        </Text>
-      ))}
+      <Text style={{ color: OC.dim, fontSize: 11, marginTop: 4, lineHeight: 16 }}>
+        아직 티켓 판매 단계는 아니에요
+      </Text>
 
       {pitch ? (
-        <Text style={{ color: "#94a3b8", fontSize: 12, lineHeight: 17, marginTop: S.sm }} numberOfLines={2}>
+        <Text style={{ color: "#94a3b8", fontSize: 11, lineHeight: 16, marginTop: 6 }} numberOfLines={1}>
           {pitch}
         </Text>
       ) : null}
 
       <BattleArtistSocialProof social={artist.social} compact sectionLabel="아티스트 확인하기" />
 
-      <View style={{ marginTop: S.sm, opacity: 0.55 }}>
+      <View style={{ marginTop: S.sm, opacity: 0.5 }}>
         <ProgressBar pct={pct} fillColor={OC.gold} height={4} />
-        <Text style={{ color: OC.dim, fontSize: 10, marginTop: 4 }}>
-          {race.currentCount} / {race.targetCount} core · 최소 수요 달성
+        <Text style={{ color: OC.dim, fontSize: 10, marginTop: 3 }}>
+          {race.currentCount} / {race.targetCount} core
         </Text>
       </View>
 
@@ -233,6 +233,7 @@ function TicketOpenCard({
   venueName,
   capacity,
   remainingTickets,
+  campaignImage,
   onPress,
 }: {
   race: Race;
@@ -241,50 +242,48 @@ function TicketOpenCard({
   venueName: string;
   capacity: number;
   remainingTickets: number;
+  campaignImage?: ReturnType<typeof resolveRaceCampaignImage>;
   onPress: () => void;
 }) {
-  const venueLine = `${venueName} · 정원 ${capacity} · 추가 티켓 ${remainingTickets}장`;
   return (
     <CardShell
       onPress={onPress}
+      variant="ticket"
       borderColor={OC.fan.border}
-      label="티켓 추가 오픈"
-      labelColor={OC.accentSoft}
+      posterBadge="티켓 추가 오픈"
+      posterBadgeColor={OC.accentSoft}
+      campaignImage={campaignImage}
       title={race.title}
-      meta={`${artist.name} · ${artist.genre}`}
+      meta={`${artist.name} · ${artist.genre} · ${venueName}`}
     >
       <View
         style={{
           alignSelf: "flex-start",
           marginTop: S.sm,
-          paddingHorizontal: 8,
-          paddingVertical: 3,
-          borderRadius: 6,
+          paddingHorizontal: 7,
+          paddingVertical: 2,
+          borderRadius: 5,
           backgroundColor: OC.fan.bg,
           borderWidth: 1,
           borderColor: OC.fan.border,
         }}
       >
-        <Text style={{ color: OC.accentSoft, fontWeight: "800", fontSize: 10 }}>100코어 확보</Text>
+        <Text style={{ color: OC.accentSoft, fontWeight: "800", fontSize: 9 }}>100코어 확보</Text>
       </View>
 
-      <Text style={{ color: OC.accentSoft, fontWeight: "900", fontSize: 22, marginTop: S.sm, lineHeight: 28 }}>
+      <Text style={{ color: OC.accentSoft, fontWeight: "900", fontSize: 21, marginTop: 6, lineHeight: 27 }}>
         {fanPhaseCardHero("ticket_open", race, remainingTickets)}
       </Text>
 
-      <Text style={{ color: OC.text, fontWeight: "800", fontSize: 14, marginTop: 6 }}>{venueName}</Text>
-      <Text style={{ color: OC.muted, fontSize: 12, marginTop: 2 }}>정원 {capacity}</Text>
-      <Text style={{ color: OC.muted, fontSize: 13, fontWeight: "700", marginTop: 4 }}>
-        가격 {formatDeposit(race.depositAmount)}
+      <Text style={{ color: OC.muted, fontSize: 12, marginTop: 4, lineHeight: 17 }}>
+        {venueName} · 정원 {capacity} · {formatDeposit(race.depositAmount)}
       </Text>
-
-      <Text style={{ color: OC.dim, fontSize: 11, marginTop: 6, lineHeight: 16 }}>{venueLine}</Text>
-      <Text style={{ color: OC.muted, fontSize: 12, marginTop: S.sm, lineHeight: 17 }}>
+      <Text style={{ color: OC.dim, fontSize: 11, marginTop: 4, lineHeight: 15 }} numberOfLines={2}>
         100코어는 공연을 여는 최소 수요였고, 남은 좌석은 베뉴 확정 후 추가로 열립니다.
       </Text>
 
       {pitch ? (
-        <Text style={{ color: "#94a3b8", fontSize: 12, lineHeight: 17, marginTop: S.sm }} numberOfLines={2}>
+        <Text style={{ color: "#94a3b8", fontSize: 11, lineHeight: 16, marginTop: 6 }} numberOfLines={1}>
           {pitch}
         </Text>
       ) : null}
@@ -315,6 +314,7 @@ export function OnecoreRaceCard({ race, artist, venueName, venueCapacity, onPres
   const capacity = venueCapacity ?? 180;
   const remainingTickets = Math.max(0, capacity - race.targetCount);
   const resolvedVenue = venueName ?? "홍대 클럽 FF";
+  const campaignImage = resolveRaceCampaignImage(race, artist);
 
   if (variant === "collecting") {
     return (
@@ -325,6 +325,7 @@ export function OnecoreRaceCard({ race, artist, venueName, venueCapacity, onPres
         pitch={pitch}
         pct={pct}
         remaining={remaining}
+        campaignImage={campaignImage}
         onPress={onPress}
       />
     );
@@ -332,7 +333,15 @@ export function OnecoreRaceCard({ race, artist, venueName, venueCapacity, onPres
 
   if (variant === "reviewing") {
     return (
-      <ReviewingCard race={race} artist={artist} phase={phase} pitch={pitch} pct={pct} onPress={onPress} />
+      <ReviewingCard
+        race={race}
+        artist={artist}
+        phase={phase}
+        pitch={pitch}
+        pct={pct}
+        campaignImage={campaignImage}
+        onPress={onPress}
+      />
     );
   }
 
@@ -344,6 +353,7 @@ export function OnecoreRaceCard({ race, artist, venueName, venueCapacity, onPres
       venueName={resolvedVenue}
       capacity={capacity}
       remainingTickets={remainingTickets}
+      campaignImage={campaignImage}
       onPress={onPress}
     />
   );

@@ -1,6 +1,7 @@
 /** ONECORE MVP domain models */
 
 import type { ArtistSocialProof } from "../lib/artistSocial";
+import type { ArtistCampaignImage } from "./artistImages";
 
 export type RaceStatus =
   | "draft"
@@ -70,6 +71,8 @@ export type Artist = {
   battlePitch?: string;
   /** Proof links fans use to verify the artist */
   social?: ArtistSocialProof;
+  /** Default poster for ONECORE campaign cards */
+  campaignImage?: ArtistCampaignImage;
 };
 
 export type VenueCandidate = {
@@ -167,6 +170,8 @@ export type Race = {
   adminPhase: RaceAdminPhase;
   /** 팬이 이 공연 제안의 이유를 이해하게 하는 설명 */
   proposalReason: string;
+  /** Card poster override (falls back to artist.campaignImage) */
+  campaignImage?: ArtistCampaignImage;
   targetCount: number;
   currentCount: number;
   deadline: string;

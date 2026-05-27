@@ -13,6 +13,11 @@ export function seedOnecoreState(): OnecoreState {
         bio: "팬들이 먼저 불러낸 단독 밤. 작은 클럽에서 큰 호흡으로 부릅니다.",
         battlePitch: "즉흥 리드와 공간 장악. FF 신인 나이트에서 가장 빠르게 올라온 모던 재즈.",
         social: { primaryPlatform: "instagram", instagram: "kimoki_jazz", youtube: "kimokijazz", spotify: "kimoki" },
+        campaignImage: {
+          assetKey: "kimoki-placeholder",
+          alt: "김오기 재즈 라이브 캠페인 포스터",
+          cropFocusY: 0.42,
+        },
       },
       {
         id: "artist-moon",
@@ -22,6 +27,11 @@ export function seedOnecoreState(): OnecoreState {
         bio: "감성 재즈 세트로 홍대 팬들과 맞춰 온 아티스트입니다.",
         battlePitch: "심야 연기와 브라스 열기. FF 재즈 보컬의 중심.",
         social: { primaryPlatform: "tiktok", tiktok: "moonmihyang", instagram: "moon_vocal" },
+        campaignImage: {
+          assetKey: "moonmihyang-placeholder",
+          alt: "문미향 재즈 보컬 라이브",
+          cropFocusY: 0.38,
+        },
       },
     ],
     venueCandidates: [
@@ -108,6 +118,11 @@ export function seedOnecoreState(): OnecoreState {
         artistConfirmationStatus: "pending",
         venueConfirmationStatus: "pending",
         showPreparationStatus: "not_started",
+        campaignImage: {
+          assetKey: "kimoki-placeholder",
+          alt: "김오기 · 홍대 재즈 단독 밤",
+          cropFocusY: 0.42,
+        },
       },
       {
         id: "race-moon-prep-demo",
@@ -144,6 +159,11 @@ export function seedOnecoreState(): OnecoreState {
         minTicketPrice: 35000,
         termsNote: "아티스트 payout 우선",
         refundReviewDate: "2026-06-18",
+        campaignImage: {
+          assetKey: "moonmihyang-placeholder",
+          alt: "문미향 · 공연 준비 단계",
+          cropFocusY: 0.38,
+        },
       },
       {
         id: "race-moon-ticket-open-demo",
@@ -181,6 +201,11 @@ export function seedOnecoreState(): OnecoreState {
         minTicketPrice: 30000,
         termsNote: "추가 티켓 오픈 단계",
         refundReviewDate: "2026-06-22",
+        campaignImage: {
+          assetKey: "moonmihyang-ticket-placeholder",
+          alt: "문미향 · 홍대 FF 티켓 오픈",
+          cropFocusY: 0.45,
+        },
       },
     ],
     commitments: [
