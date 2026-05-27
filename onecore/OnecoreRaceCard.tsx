@@ -6,11 +6,12 @@ import { resolveRaceCampaignVisual } from "./campaignVisuals";
 import { OnecoreCampaignPoster } from "./OnecoreCampaignPoster";
 import type { OnecoreCardVariant } from "./copy";
 import {
-  fanPhaseLabel,
+  fanCampaignCardMeta,
   fanPhaseCardHero,
   fanPhaseSubline,
   formatCollectingDeadlineLine,
   formatDeposit,
+  resolveFanCampaignPitch,
   resolveOnecoreCardVariant,
 } from "./copy";
 import { resolveOnecoreFanPhase } from "./logic";
@@ -121,7 +122,7 @@ function CollectingCard({
       posterBadgeColor={OC.gold}
       campaignImage={campaignImage}
       title={race.title}
-      meta={`${artist.name} · ${artist.genre} · ${fanPhaseLabel(phase)}`}
+      meta={fanCampaignCardMeta(artist.name, artist.genre, phase)}
     >
       <Text style={{ color: OC.text, fontWeight: "900", fontSize: 24, marginTop: S.sm, letterSpacing: -0.5 }}>
         {fanPhaseCardHero(phase, race)}
@@ -133,6 +134,7 @@ function CollectingCard({
           {pitch}
         </Text>
       ) : null}
+      <Text style={{ color: OC.muted, fontSize: 11, marginTop: 4, lineHeight: 16 }}>{fanPhaseSubline(phase, race)}</Text>
 
       <BattleArtistSocialProof social={artist.social} compact sectionLabel="아티스트 확인하기" />
 
@@ -310,7 +312,7 @@ export function OnecoreRaceCard({ race, artist, venueName, venueCapacity, onPres
   const variant = resolveOnecoreCardVariant(phase);
   const pct = Math.min(100, Math.round((race.currentCount / Math.max(race.targetCount, 1)) * 100));
   const remaining = Math.max(0, race.targetCount - race.currentCount);
-  const pitch = artist.battlePitch ?? race.proposalReason;
+  const pitch = resolveFanCampaignPitch(race, artist, variant);
   const capacity = venueCapacity ?? 180;
   const remainingTickets = Math.max(0, capacity - race.targetCount);
   const resolvedVenue = venueName ?? "홍대 클럽 FF";

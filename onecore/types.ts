@@ -172,6 +172,8 @@ export type Race = {
   proposalReason: string;
   /** Card poster override (falls back to artist.campaignImage) */
   campaignImage?: CampaignVisualInput;
+  /** Fan-facing pitch (venue-neutral until ticket open) */
+  fanPitch?: string;
   targetCount: number;
   currentCount: number;
   deadline: string;

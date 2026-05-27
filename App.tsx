@@ -87,7 +87,7 @@ const ONECORE_TAGLINE_SHORT = "100코어가 모이면 공연 준비가 시작돼
 const ONECORE_CAMPAIGN_HEADLINE = "100코어로 공연을 열자";
 const ONECORE_RULE_SUMMARY = "최소 수요 100코어 · 실패 시 전액 환불";
 const ONECORE_THRESHOLD_EXPLAIN =
-  "100코어는 공연을 열기 위한 최소 수요입니다. 실제 좌석 수는 공연장 확정 후 정해져요.";
+  "100코어는 공연을 열기 위한 최소 수요입니다. 아티스트와 공연장은 수요 증명 후 연결됩니다.";
 const ONECORE_SOLO_CORE_GOAL = 100;
 const ONECORE_ALMOST_THERE_REMAINING = 35;
 

@@ -55,7 +55,7 @@ export function defaultCampaignPhotoForRace(raceId: string, artistId: string): O
   if (raceId === "race-kimogi-jazz-ff") {
     return {
       assetKey: "kimoki-placeholder",
-      alt: "김오기 재즈 라이브 캠페인 포스터",
+      alt: "김오기 · 재즈 단독 공연 제안",
       cropFocusY: 0.42,
     };
   }

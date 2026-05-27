@@ -15,8 +15,10 @@ import {
   formatDeposit,
   fanStatusHeadline,
   fanStatusSubline,
-  ONECORE_THRESHOLD_NOTE,
+  isPreVenueFanPhase,
+  resolveFanCampaignPitch,
   resolveOnecoreCardVariant,
+  thresholdNoteForPhase,
   TRUST_COPY,
 } from "./copy";
 import { canFanCommit, isTerminalStatus, resolveOnecoreFanPhase } from "./logic";
@@ -87,8 +89,8 @@ export function RaceProposalScreen({
   const fail = failed ? failureCopy(race.failureKind, race.failureMessage) : null;
   const assignedVenue = venues.find((v) => v.id === race.assignedVenueId);
   const fanPhase = resolveOnecoreFanPhase(race);
-  const pitch = artist.battlePitch ?? race.proposalReason;
   const cardVariant = resolveOnecoreCardVariant(fanPhase);
+  const pitch = resolveFanCampaignPitch(race, artist, cardVariant) ?? artist.battlePitch ?? race.proposalReason;
   const isTicketOpen = cardVariant === "ticket";
   const isReviewing = cardVariant === "reviewing";
   const venueCapacity = assignedVenue?.capacity ?? 180;
@@ -122,7 +124,7 @@ export function RaceProposalScreen({
       <Text style={{ color: OC.muted, marginTop: 4, fontSize: 15, fontWeight: "700" }}>
         {race.title} · {artist.name} · {fanPhaseLabel(fanPhase)}
       </Text>
-      <Text style={{ color: OC.dim, marginTop: S.xs, fontSize: 13, lineHeight: 20 }}>{ONECORE_THRESHOLD_NOTE}</Text>
+      <Text style={{ color: OC.dim, marginTop: S.xs, fontSize: 13, lineHeight: 20 }}>{thresholdNoteForPhase(fanPhase)}</Text>
 
       <Card border={OC.fan.border}>
         <SectionLabel>팬들이 응원할 이유</SectionLabel>
@@ -338,10 +340,12 @@ export function RaceProposalScreen({
               </Text>
             </View>
           ))}
-          <Text style={{ color: OC.dim, fontSize: 12, marginTop: S.md }}>
-            {TRUST_COPY.venue}
-            {assignedVenue ? ` · ${assignedVenue.name} 후보 검토 중` : ""}
-          </Text>
+          {!isPreVenueFanPhase(fanPhase) ? (
+            <Text style={{ color: OC.dim, fontSize: 12, marginTop: S.md }}>
+              {TRUST_COPY.venue}
+              {assignedVenue ? ` · ${assignedVenue.name} 후보 검토 중` : ""}
+            </Text>
+          ) : null}
         </Card>
       ) : null}
 
@@ -358,7 +362,13 @@ export function RaceProposalScreen({
         <SectionLabel>신뢰 · 규칙</SectionLabel>
         <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22 }}>· {TRUST_COPY.payment}</Text>
         <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>· {TRUST_COPY.success}</Text>
-        <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>· {TRUST_COPY.venue}</Text>
+        {!isPreVenueFanPhase(fanPhase) ? (
+          <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>· {TRUST_COPY.venue}</Text>
+        ) : (
+          <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>
+            · {thresholdNoteForPhase(fanPhase)}
+          </Text>
+        )}
         <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>· {TRUST_COPY.wedge}</Text>
         <Text style={{ color: OC.muted, fontSize: 13, lineHeight: 22, marginTop: S.xs }}>
           · 결제: {race.paymentType === "deposit" ? "예치금" : "전액"} {formatDeposit(race.depositAmount)}
@@ -371,7 +381,7 @@ export function RaceProposalScreen({
             · {rule}
           </Text>
         ))}
-        {venues.length > 0 ? (
+        {!isPreVenueFanPhase(fanPhase) && venues.length > 0 ? (
           <Text style={{ color: OC.dim, fontSize: 12, marginTop: S.md }}>
             참고용 후보 (확정 아님): {venues.map((v) => v.name).join(" · ")}
           </Text>

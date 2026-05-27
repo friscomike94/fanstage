@@ -5,6 +5,37 @@ import { mapStatusToAdminPhase, resolveOnecoreFanPhase } from "./logic";
 export const ONECORE_THRESHOLD_NOTE =
   "100코어는 공연을 열기 위한 최소 수요입니다. 실제 좌석 수는 공연장 확정 후 정해져요.";
 
+/** Collecting / pre-venue fan copy — no venue, capacity, or neighborhood */
+export const ONECORE_COLLECTING_THRESHOLD_NOTE =
+  "100코어는 공연을 열기 위한 최소 수요입니다. 아티스트와 공연장은 수요 증명 후 연결됩니다.";
+
+export function isPreVenueFanPhase(phase: OnecoreFanPhase): boolean {
+  return phase === "collecting_core" || phase === "threshold_reached" || phase === "artist_accepted";
+}
+
+export function fanCampaignCardMeta(artistName: string, genre: string, phase: OnecoreFanPhase): string {
+  return `${artistName} · ${genre} · ${fanPhaseLabel(phase)}`;
+}
+
+/** Prefer race fan copy over battle pitch before venue is assigned. */
+export function resolveFanCampaignPitch(
+  race: Race,
+  artist: { battlePitch?: string; tagline?: string },
+  variant: OnecoreCardVariant
+): string | undefined {
+  if (variant === "ticket") return undefined;
+  if (variant === "collecting" || variant === "reviewing") {
+    return race.fanPitch ?? race.proposalReason ?? artist.tagline;
+  }
+  return artist.battlePitch ?? race.proposalReason;
+}
+
+export function thresholdNoteForPhase(phase: OnecoreFanPhase): string {
+  if (phase === "collecting_core") return ONECORE_COLLECTING_THRESHOLD_NOTE;
+  if (isPreVenueFanPhase(phase)) return ONECORE_COLLECTING_THRESHOLD_NOTE;
+  return ONECORE_THRESHOLD_NOTE;
+}
+
 export function fanPhaseLabel(phase: OnecoreFanPhase): string {
   const map: Record<OnecoreFanPhase, string> = {
     collecting_core: "모집 중",
@@ -54,9 +85,9 @@ export function fanPhaseSubline(phase: OnecoreFanPhase, race: Race): string {
     case "threshold_reached":
       return "fanstage가 아티스트와 공연 조건을 확인합니다";
     case "artist_accepted":
-      return "아티스트 수락 후 좌석/티켓 수량이 열려요. 베뉴 매칭 중입니다.";
+      return "아티스트 수락 후 공연장 매칭이 진행됩니다.";
     case "venue_assigned":
-      return "베뉴 정원은 공연장 확정 후 공개돼요. 티켓 오픈을 준비 중입니다.";
+      return "공연장이 정해졌어요. 티켓 오픈을 준비 중입니다.";
     case "ticket_open":
       return "100코어는 공연을 여는 최소 수요였고, 남은 좌석은 베뉴 확정 후 추가로 열립니다.";
     default:
