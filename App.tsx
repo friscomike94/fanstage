@@ -25,6 +25,9 @@ import { ArtistInviteScreen } from "./onecore/ArtistInviteScreen";
 import { DemandScoutScreen } from "./onecore/DemandScoutScreen";
 import { OnecoreRaceCard } from "./onecore/OnecoreRaceCard";
 import { IllustrationBackdrop } from "./onecore/IllustrationBackdrop";
+import { FanArtistRecommendationSection } from "./components/FanArtistRecommendationSection";
+import { FanArtistRecommendationOverlay } from "./components/FanArtistRecommendationOverlay";
+import type { FanArtistRecommendation } from "./onecore/fanRecommendations";
 import { RaceProposalScreen } from "./onecore/RaceProposalScreen";
 import {
   applyRaceStatusChange,
@@ -208,7 +211,8 @@ type Overlay =
   | "applyBattle"
   | "raceProposal"
   | "adminRace"
-  | "artistInvite";
+  | "artistInvite"
+  | "fanRecommend";
 type BackingStep = "review" | "confirmed";
 type VenueMomentum = "Heating up" | "Almost unlocked" | "Slot won";
 type DistrictFilter = "전체" | "홍대" | "마포" | "이태원" | "성수";
@@ -3072,6 +3076,8 @@ function VenueFeedScreen({
   onecoreRaces,
   onOpenOnecoreRace,
   onecoreVenues,
+  fanRecommendations,
+  onOpenFanRecommend,
 }: {
   district: DistrictFilter;
   onDistrictChange: (d: DistrictFilter) => void;
@@ -3091,6 +3097,8 @@ function VenueFeedScreen({
   onecoreRaces: { race: Race; artist: Artist }[];
   onecoreVenues: VenueCandidate[];
   onOpenOnecoreRace: (raceId: string) => void;
+  fanRecommendations: FanArtistRecommendation[];
+  onOpenFanRecommend: () => void;
 }) {
   const myActive = venues.filter((v) => {
     const pick = venueBackings[v.id];
@@ -3115,21 +3123,34 @@ function VenueFeedScreen({
           <Text style={{ color: C.dim, fontSize: 12, marginTop: 4, marginBottom: SPACE.md, lineHeight: 18 }}>
             {ONECORE_THRESHOLD_EXPLAIN}
           </Text>
-          {onecoreRaces.map(({ race, artist }) => (
-            <OnecoreRaceCard
-              key={race.id}
-              race={race}
-              artist={artist}
-              venueName={
-                onecoreVenues.find((v) => v.id === race.assignedVenueId)?.name ??
-                (race.assignedVenueId === "venue-ff" ? "홍대 클럽 FF" : undefined)
-              }
-              venueCapacity={onecoreVenues.find((v) => v.id === race.assignedVenueId)?.capacity}
-              onPress={() => onOpenOnecoreRace(race.id)}
-            />
+          {onecoreRaces.map(({ race, artist }, index) => (
+            <React.Fragment key={race.id}>
+              <OnecoreRaceCard
+                race={race}
+                artist={artist}
+                venueName={
+                  onecoreVenues.find((v) => v.id === race.assignedVenueId)?.name ??
+                  (race.assignedVenueId === "venue-ff" ? "홍대 클럽 FF" : undefined)
+                }
+                venueCapacity={onecoreVenues.find((v) => v.id === race.assignedVenueId)?.capacity}
+                onPress={() => onOpenOnecoreRace(race.id)}
+              />
+              {index === 0 ? (
+                <FanArtistRecommendationSection
+                  recommendations={fanRecommendations}
+                  onRecommend={onOpenFanRecommend}
+                />
+              ) : null}
+            </React.Fragment>
           ))}
         </View>
-      ) : null}
+      ) : (
+        <View style={{ marginBottom: SPACE.lg }}>
+          <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, lineHeight: 26 }}>ONECORE 캠페인</Text>
+          <Text style={{ color: C.muted, fontSize: 13, marginTop: 4, lineHeight: 19 }}>{ONECORE_CAMPAIGN_HEADLINE}</Text>
+          <FanArtistRecommendationSection recommendations={fanRecommendations} onRecommend={onOpenFanRecommend} />
+        </View>
+      )}
 
       <MyParticipatingSection
         venues={myActive}
@@ -3931,7 +3952,7 @@ function TicketLifecycleSummary({
     <View style={{ backgroundColor: C.surface, borderRadius: 20, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
       <Text style={{ color: C.text, fontWeight: "900", fontSize: 16 }}>내 티켓 흐름</Text>
       <Text style={{ color: C.muted, marginTop: 4, fontSize: 12, lineHeight: 18 }}>
-        성사된 무대는 티켓으로, 진행 중인 무대는 Venues에서 계속 밀어 주세요.
+        성사된 무대는 티켓으로, 진행 중인 ONECORE 캠페인은 Onecore 탭에서 계속 밀어 주세요.
       </Text>
       <View style={{ flexDirection: "row", marginTop: SPACE.md }}>
         {steps.map((step, index) => (
@@ -5717,7 +5738,7 @@ function ProtoToast({ message, onDismiss }: { message: string | null; onDismiss:
 function BottomNav({ activeTab, onTabChange, visible }: { activeTab: Tab; onTabChange: (t: Tab) => void; visible: boolean }) {
   if (!visible) return null;
   const tabs: { id: Tab; label: string }[] = [
-    { id: "discover", label: "Venues" },
+    { id: "discover", label: "Onecore" },
     { id: "tickets", label: "Tickets" },
     { id: "profile", label: "Profile" },
   ];
@@ -5770,6 +5791,7 @@ function AppContent() {
   const [coreCommitError, setCoreCommitError] = useState<string | undefined>();
   const [artistInviteRaceId, setArtistInviteRaceId] = useState<string | null>(null);
   const [artistInviteSubmitted, setArtistInviteSubmitted] = useState(false);
+  const [fanRecommendations, setFanRecommendations] = useState<FanArtistRecommendation[]>([]);
 
   const dismissToast = useCallback(() => setToast(null), []);
   const showToast = useCallback((msg: string) => setToast(msg), []);
@@ -6090,6 +6112,23 @@ function AppContent() {
         />
       );
     }
+    if (overlay === "fanRecommend") {
+      return (
+        <FanArtistRecommendationOverlay
+          onBack={closeOverlay}
+          onSubmit={(draft) => {
+            const rec: FanArtistRecommendation = {
+              id: `fan-rec-${Date.now()}`,
+              ...draft,
+              status: "reviewing",
+              createdAt: new Date().toISOString(),
+            };
+            setFanRecommendations((prev) => [rec, ...prev]);
+          }}
+        />
+      );
+    }
+
     if (overlay === "applyBattle") {
       return (
         <ApplyBattleFlow
@@ -6472,6 +6511,8 @@ function AppContent() {
             onecoreRaces={discoverOnecoreRaces}
             onecoreVenues={onecoreState.venueCandidates}
             onOpenOnecoreRace={openOnecoreRace}
+            fanRecommendations={fanRecommendations}
+            onOpenFanRecommend={() => setOverlay("fanRecommend")}
           />
         );
     }
@@ -6486,7 +6527,8 @@ function AppContent() {
     overlay === "adminRace" ||
     overlay === "artistInvite" ||
     overlay === "curatorTools" ||
-    overlay === "applyBattle";
+    overlay === "applyBattle" ||
+    overlay === "fanRecommend";
 
   const handleOverlaySafeBack = () => {
     if (overlay === "artistDetail") closeArtistDetail();

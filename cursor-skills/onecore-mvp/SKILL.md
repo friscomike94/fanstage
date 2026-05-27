@@ -50,7 +50,7 @@ App.tsx                 # State: onecoreState, overlays raceProposal | adminRace
 
 | Entry | Path |
 |-------|------|
-| Fan discover | **Venues** tab → `ONECORE 캠페인` → `OnecoreRaceCard` → overlay `raceProposal` |
+| Fan discover | **Onecore** tab → `ONECORE 캠페인` → `OnecoreRaceCard` → overlay `raceProposal` · 팬 추천 `fanRecommend` |
 | Fan detail | `RaceProposalScreen` |
 | Admin | **Profile** (curator) → `ONECORE Admin · Race & logs` → overlay `adminRace` |
 | State | `useState(seedOnecoreState())` in `AppContent`; user `user-mike`, admin `admin@fanstage` |
