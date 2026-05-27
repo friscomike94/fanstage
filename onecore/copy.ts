@@ -5,7 +5,7 @@ import { mapStatusToAdminPhase } from "./logic";
 export function raceProgressHeadline(race: Race): string {
   const remaining = Math.max(0, race.targetCount - race.currentCount);
   if (remaining > 0) {
-    return `${remaining}명 더 모이면 공연 준비 단계로 넘어갑니다`;
+    return `${remaining}코어 더 모이면 아티스트 초대 단계로 넘어갑니다`;
   }
   return fanStatusHeadline(race);
 }
@@ -21,26 +21,26 @@ export function raceProgressSubline(race: Race): string {
 /** 팬에게만 보이는 상태 문구 — 협상·수수료 노출 없음 */
 export function fanStatusHeadline(race: Race): string {
   const phase = race.adminPhase ?? mapStatusToAdminPhase(race.status);
-  if (phase === "demand_proven" || race.status === "target_reached") return "수요가 증명됐어요";
+  if (phase === "demand_proven" || race.status === "target_reached") return "아티스트 초대 검토 중";
   if (phase === "artist_contacting") return "아티스트에게 비공개 초대장을 보냈어요";
   if (phase === "artist_reviewing_invite") return "아티스트가 초대장을 검토 중이에요";
   if (phase === "venue_matching") return "공연장 후보를 검토 중이에요";
   if (phase === "confirming_terms") return "조건을 확인 중이에요";
-  if (phase === "ticketing_ready") return "확정되면 티켓 오픈으로 넘어가요";
+  if (phase === "ticketing_ready") return "아티스트 수락 · 베뉴 확정";
   if (phase === "refund_or_alternative_review") return "환불 또는 대안 검토 중이에요";
   return "목표 인원에 도달했습니다";
 }
 
 export function fanStatusSubline(race: Race): string {
   const phase = race.adminPhase ?? mapStatusToAdminPhase(race.status);
-  if (phase === "collecting_demand") return "팬들의 core가 모이면 fanstage가 비공개로 공연을 준비합니다.";
-  if (phase === "demand_proven") return "이제 fanstage가 아티스트와 공연장을 조용히 연결합니다.";
+  if (phase === "collecting_demand") return "100코어가 모이면 공연 준비가 시작돼요. 베뉴 정원은 공연장 확정 후 공개돼요.";
+  if (phase === "demand_proven") return "최소 수요가 증명됐어요. fanstage가 아티스트와 공연 조건을 확인합니다.";
   if (phase === "artist_contacting" || phase === "artist_reviewing_invite") {
     return "아티스트 일정·조건은 비공개로 확인 중이에요. 팬에게는 진행 상황만 알려드립니다.";
   }
   if (phase === "venue_matching") return "팬·스카우트가 제안한 곳을 참고하지만, 최종 공연장은 fanstage가 확정합니다.";
-  if (phase === "confirming_terms") return "조건이 맞으면 티켓 오픈 단계로 넘어갑니다.";
-  if (phase === "ticketing_ready") return "곧 입장권 안내를 받을 수 있어요.";
+  if (phase === "confirming_terms") return "아티스트 수락 후 좌석/티켓 수량이 열려요.";
+  if (phase === "ticketing_ready") return "100코어는 최소 수요였고, 남은 좌석은 베뉴 확정 후 추가로 열립니다.";
   return "다음 단계는 fanstage 운영팀이 이어갑니다.";
 }
 

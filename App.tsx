@@ -82,7 +82,7 @@ const FANSTAGE_TAGLINE = "팬스테이지는 팬이 무대를 현실로 만드�
 const FANSTAGE_HERO_MAIN = "팬이 모이면, 무대가 열린다";
 const FANSTAGE_HERO_SUB =
   "한 공연장, 한 번의 선택. 가장 많은 지지를 받은 팀이 실제 무대에 오릅니다.";
-const ONECORE_TAGLINE_SHORT = "100명의 코어가 모이면, 한 팀의 밤이 공연 준비 단계로 넘어갑니다.";
+const ONECORE_TAGLINE_SHORT = "100코어가 모이면 공연 준비가 시작돼요.";
 const ONECORE_RACE_LEAD = "지금 무대에 가장 가까운 팀";
 const ONECORE_RACE_FINISH = "100코어를 먼저 채운 한 팀이 단독 공연 준비 단계로 넘어갑니다.";
 const ONECORE_LINEUP_TITLE = "누가 이 밤의 주인공이 될까요?";
@@ -3099,8 +3099,11 @@ function VenueFeedScreen({
       {onecoreRaces.length > 0 ? (
         <View style={{ marginBottom: SPACE.lg }}>
           <Text style={{ color: C.text, fontWeight: "900", fontSize: 20, lineHeight: 26 }}>ONECORE 제안</Text>
-          <Text style={{ color: C.muted, fontSize: 13, marginTop: 4, marginBottom: SPACE.md, lineHeight: 19 }}>
-            100명의 코어가 모이면, 한 팀의 밤이 공연 준비 단계로 넘어갑니다
+          <Text style={{ color: C.muted, fontSize: 13, marginTop: 4, lineHeight: 19 }}>
+            100코어가 모이면 공연 준비가 시작돼요
+          </Text>
+          <Text style={{ color: C.dim, fontSize: 12, marginTop: 4, marginBottom: SPACE.md, lineHeight: 18 }}>
+            100코어는 공연을 열기 위한 최소 수요입니다. 실제 좌석 수는 공연장 확정 후 정해져요.
           </Text>
           {onecoreRaces.map(({ race, artistName, artistGenre }) => (
             <OnecoreRaceCard
