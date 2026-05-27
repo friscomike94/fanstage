@@ -27,6 +27,7 @@ import { OnecoreRaceCard } from "./onecore/OnecoreRaceCard";
 import { IllustrationBackdrop } from "./onecore/IllustrationBackdrop";
 import { FanArtistRecommendationSection } from "./components/FanArtistRecommendationSection";
 import { FanArtistRecommendationOverlay } from "./components/FanArtistRecommendationOverlay";
+import { MyFanstageProfile } from "./components/MyFanstageProfile";
 import type { FanArtistRecommendation } from "./onecore/fanRecommendations";
 import { RaceProposalScreen } from "./onecore/RaceProposalScreen";
 import {
@@ -44,6 +45,7 @@ import {
   submitArtistInvite,
   updateRaceDraft,
   updateRaceOperations,
+  resolveOnecoreFanPhase,
 } from "./onecore/logic";
 import { seedOnecoreState } from "./onecore/seed";
 import type { Artist, OnecoreState, Race, RaceDraft, RaceStatus, VenueCandidate } from "./onecore/types";
@@ -170,20 +172,7 @@ const ROLE = {
   curator: { primary: "#3b82f6", soft: "#93c5fd", bg: "#1e3a5f", border: "#3b82f666", label: "Curator" },
 };
 
-const FAN_LEVELS = [
-  { min: 0, title: "Newcomer", color: ROLE.fan.soft },
-  { min: 100, title: "Scene Scout", color: ROLE.fan.primary },
-  { min: 250, title: "Tastemaker", color: ROLE.fan.primary },
-  { min: 500, title: "Night Curator", color: ROLE.fan.primary },
-  { min: 800, title: "Venue Oracle", color: ROLE.fan.primary },
-];
-
 type ArtistApprovalStatus = "not_applied" | "pending" | "approved";
-type ProfileMode = "fan" | "artist";
-
-function getFanLevel(rep: number) {
-  return [...FAN_LEVELS].reverse().find((l) => rep >= l.min) ?? FAN_LEVELS[0];
-}
 
 function artistStatusLabel(status: ArtistApprovalStatus) {
   if (status === "approved") return "Approved";
@@ -1266,18 +1255,21 @@ function seedTicketWalletState(): {
     if (v.id === "rolling") {
       return { ...base, winnerId: "minu", slotsOpen: 0, countdown: { days: 3, hours: 0, minutes: 0 } };
     }
+    if (v.id === "clubff") {
+      return { ...base, winnerId: "moon", slotsOpen: 0, countdown: { days: 0, hours: 0, minutes: 6 } };
+    }
     return base;
   });
   const venueBackings: Record<string, string> = {
-    rolling: "minu",
+    clubff: "moon",
     modeci: "neon",
     velvet: "sable",
   };
   const modeci = venues.find((v) => v.id === "modeci")!;
   const neon = modeci.artists.find((a) => a.id === "neon")!;
-  const rolling = venues.find((v) => v.id === "rolling")!;
-  const minu = rolling.artists.find((a) => a.id === "minu")!;
-  const wonTickets = [createWinnerTicket(modeci, neon), createWinnerTicket(rolling, minu)];
+  const clubff = venues.find((v) => v.id === "clubff")!;
+  const moon = clubff.artists.find((a) => a.id === "moon")!;
+  const wonTickets = [createWinnerTicket(modeci, neon), createWinnerTicket(clubff, moon)];
   return { venues, venueBackings, wonTickets };
 }
 
@@ -1910,110 +1902,6 @@ function WinnerGlow({ active, children }: { active: boolean; children: React.Rea
     >
       {children}
     </View>
-  );
-}
-
-function FanLevelBadge({ reputation }: { reputation: number }) {
-  const level = getFanLevel(reputation);
-  return (
-    <View style={{ backgroundColor: ROLE.fan.bg, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: ROLE.fan.border }}>
-      <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 11 }}>{level.title.toUpperCase()}</Text>
-    </View>
-  );
-}
-
-function RoleSwitcher({
-  mode,
-  canUseArtist,
-  artistRoleStatus,
-  onChange,
-}: {
-  mode: ProfileMode;
-  canUseArtist: boolean;
-  artistRoleStatus: ArtistApprovalStatus;
-  onChange: (m: ProfileMode) => void;
-}) {
-  const options: { id: ProfileMode; title: string; desc: string; role: typeof ROLE.fan; locked?: boolean }[] = [
-    { id: "fan", title: "Fan", desc: "Back artists, invite talent, earn rep", role: ROLE.fan },
-    {
-      id: "artist",
-      title: "Artist",
-      desc: canUseArtist
-        ? "Enter battles and win venue slots"
-        : artistRoleStatus === "pending"
-          ? "Verification in review"
-          : "Apply once to unlock this view",
-      role: ROLE.artist,
-      locked: !canUseArtist,
-    },
-  ];
-
-  return (
-    <View style={{ marginBottom: SPACE.lg }}>
-      <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700", marginBottom: SPACE.sm, letterSpacing: 1 }}>VIEW AS</Text>
-      <View style={{ flexDirection: "row", gap: SPACE.sm }}>
-        {options.map((opt) => {
-          const active = mode === opt.id;
-          const disabled = !!opt.locked;
-          return (
-            <TouchableOpacity
-              key={opt.id}
-              onPress={() => !disabled && onChange(opt.id)}
-              activeOpacity={disabled ? 1 : 0.7}
-              style={{
-                flex: 1,
-                backgroundColor: active ? opt.role.bg : C.surface,
-                borderRadius: 18,
-                padding: SPACE.md,
-                borderWidth: 2,
-                borderColor: active ? opt.role.border : C.border,
-                opacity: disabled ? 0.55 : 1,
-              }}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: SPACE.xs }}>
-                <Text style={{ color: active ? opt.role.primary : C.dim, fontWeight: "900", fontSize: 15 }}>{opt.title}</Text>
-                {disabled ? <Text style={{ color: C.dim, fontSize: 14 }}>🔒</Text> : active ? <Text style={{ color: opt.role.primary, fontSize: 12 }}>●</Text> : null}
-              </View>
-              <Text style={{ color: active ? opt.role.soft : C.muted, fontSize: 11, lineHeight: 16, fontWeight: "600" }}>{opt.desc}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-function ProfileActionRow({
-  title,
-  subtitle,
-  onPress,
-  accent,
-}: {
-  title: string;
-  subtitle: string;
-  onPress: () => void;
-  accent: typeof ROLE.fan;
-}) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={{
-        backgroundColor: C.card,
-        borderRadius: 18,
-        padding: SPACE.md,
-        marginBottom: SPACE.sm,
-        borderWidth: 1,
-        borderColor: accent.border,
-        flexDirection: "row",
-        alignItems: "center",
-      }}
-    >
-      <View style={{ flex: 1 }}>
-        <Text style={{ color: C.text, fontWeight: "900", fontSize: 15 }}>{title}</Text>
-        <Text style={{ color: C.muted, marginTop: 4, fontSize: 12, lineHeight: 18 }}>{subtitle}</Text>
-      </View>
-      <Text style={{ color: accent.primary, fontWeight: "900", fontSize: 18 }}>→</Text>
-    </TouchableOpacity>
   );
 }
 
@@ -3058,12 +2946,6 @@ function DiscoverFeedHeading({ count }: { count: number }) {
 }
 
 function VenueFeedScreen({
-  district,
-  onDistrictChange,
-  genreFilter,
-  onGenreFilterChange,
-  statusFilter,
-  onStatusFilterChange,
   venues,
   venueBackings,
   wonTickets,
@@ -3079,12 +2961,6 @@ function VenueFeedScreen({
   fanRecommendations,
   onOpenFanRecommend,
 }: {
-  district: DistrictFilter;
-  onDistrictChange: (d: DistrictFilter) => void;
-  genreFilter: GenreFilter;
-  onGenreFilterChange: (g: GenreFilter) => void;
-  statusFilter: StatusFilter;
-  onStatusFilterChange: (s: StatusFilter) => void;
   venues: VenueCompetition[];
   venueBackings: Record<string, string>;
   wonTickets: Ticket[];
@@ -3123,25 +2999,19 @@ function VenueFeedScreen({
           <Text style={{ color: C.dim, fontSize: 12, marginTop: 4, marginBottom: SPACE.md, lineHeight: 18 }}>
             {ONECORE_THRESHOLD_EXPLAIN}
           </Text>
-          {onecoreRaces.map(({ race, artist }, index) => (
-            <React.Fragment key={race.id}>
-              <OnecoreRaceCard
-                race={race}
-                artist={artist}
-                venueName={
-                  onecoreVenues.find((v) => v.id === race.assignedVenueId)?.name ??
-                  (race.assignedVenueId === "venue-ff" ? "홍대 클럽 FF" : undefined)
-                }
-                venueCapacity={onecoreVenues.find((v) => v.id === race.assignedVenueId)?.capacity}
-                onPress={() => onOpenOnecoreRace(race.id)}
-              />
-              {index === 0 ? (
-                <FanArtistRecommendationSection
-                  recommendations={fanRecommendations}
-                  onRecommend={onOpenFanRecommend}
-                />
-              ) : null}
-            </React.Fragment>
+          <FanArtistRecommendationSection recommendations={fanRecommendations} onRecommend={onOpenFanRecommend} />
+          {onecoreRaces.map(({ race, artist }) => (
+            <OnecoreRaceCard
+              key={race.id}
+              race={race}
+              artist={artist}
+              venueName={
+                onecoreVenues.find((v) => v.id === race.assignedVenueId)?.name ??
+                (race.assignedVenueId === "venue-ff" ? "홍대 클럽 FF" : undefined)
+              }
+              venueCapacity={onecoreVenues.find((v) => v.id === race.assignedVenueId)?.capacity}
+              onPress={() => onOpenOnecoreRace(race.id)}
+            />
           ))}
         </View>
       ) : (
@@ -3162,17 +3032,8 @@ function VenueFeedScreen({
         onInviteFriend={onInviteFriend}
       />
 
-      <UnfoldableFilters
-        genreFilter={genreFilter}
-        onGenreFilterChange={onGenreFilterChange}
-        district={district}
-        onDistrictChange={onDistrictChange}
-        statusFilter={statusFilter}
-        onStatusFilterChange={onStatusFilterChange}
-      />
-
       {venues.length === 0 ? (
-        <Text style={{ color: C.muted, textAlign: "center", padding: SPACE.xl }}>필터에 맞는 공연이 없습니다.</Text>
+        <Text style={{ color: C.muted, textAlign: "center", padding: SPACE.xl }}>열린 캠페인이 없습니다.</Text>
       ) : (
         <>
             {discoverActive.length > 0 ? (
@@ -4644,339 +4505,6 @@ function ApplyBattleFlow({
   );
 }
 
-function ProfileScreen({
-  handle,
-  profileMode,
-  onProfileModeChange,
-  reputation,
-  picksCount,
-  invites,
-  battleApplications,
-  artistRoleStatus,
-  artistStageName,
-  onApplyForArtist,
-  onExploreBattles,
-  onOpenVenueAdmin,
-  onOpenCuratorTools,
-  onOpenOnecoreAdmin,
-  isCurator,
-}: {
-  handle: string;
-  profileMode: ProfileMode;
-  onProfileModeChange: (m: ProfileMode) => void;
-  reputation: number;
-  picksCount: number;
-  invites: number;
-  battleApplications: number;
-  artistRoleStatus: ArtistApprovalStatus;
-  artistStageName: string;
-  onApplyForArtist: () => void;
-  onExploreBattles: () => void;
-  onOpenVenueAdmin: () => void;
-  onOpenCuratorTools: () => void;
-  onOpenOnecoreAdmin: () => void;
-  isCurator: boolean;
-}) {
-  const level = getFanLevel(reputation);
-  const nextLevel = FAN_LEVELS.find((l) => l.min > reputation);
-  const repToNext = nextLevel ? nextLevel.min - reputation : 0;
-  const isArtistApproved = artistRoleStatus === "approved";
-  const isArtistView = profileMode === "artist" && isArtistApproved;
-  const activeRole = isArtistView ? ROLE.artist : ROLE.fan;
-  const displayName = artistStageName || `@${handle}`;
-
-  const fanStats = [
-    { label: "Venue picks", value: String(picksCount), hint: "Artists you've backed" },
-    { label: "Invites sent", value: String(invites), hint: "Talent you've nominated" },
-    { label: "Reputation", value: String(reputation), hint: "Unlocks fan levels" },
-    { label: "Battles joined", value: String(battleApplications), hint: "As fan or applicant" },
-  ];
-
-  const artistMetrics = [
-    { label: "Live applications", value: String(battleApplications), hint: "Battles you're competing in" },
-    { label: "Total backers", value: "127", hint: "Fans backing you across battles" },
-    { label: "Slots won", value: "1", hint: "Venues where you took the stage" },
-    { label: "Active campaigns", value: "2", hint: "Battles still accepting backers" },
-  ];
-
-  return (
-    <>
-      <ScreenHeader
-        title="Your profile"
-        subtitle={
-          isArtistView
-            ? "Find battles, grow backers, win the slot"
-            : profileMode === "fan"
-              ? FANSTAGE_TAGLINE
-              : "Complete artist verification to unlock"
-        }
-        eyebrow={activeRole.label.toUpperCase()}
-      />
-
-      <RoleSwitcher
-        mode={profileMode}
-        canUseArtist={isArtistApproved}
-        artistRoleStatus={artistRoleStatus}
-        onChange={onProfileModeChange}
-      />
-
-      {isArtistView ? (
-        <>
-          <View
-            style={{
-              backgroundColor: ROLE.artist.bg,
-              borderRadius: 28,
-              padding: SPACE.lg,
-              marginBottom: SPACE.md,
-              borderWidth: 2,
-              borderColor: ROLE.artist.border,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: SPACE.sm }}>
-              <View
-                style={{
-                  backgroundColor: ROLE.artist.primary + "33",
-                  borderRadius: 999,
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  marginRight: SPACE.sm,
-                }}
-              >
-                <Text style={{ color: ROLE.artist.soft, fontWeight: "800", fontSize: 10, letterSpacing: 0.8 }}>VERIFIED</Text>
-              </View>
-              <Text style={{ color: ROLE.artist.soft, fontSize: 11, fontWeight: "600" }}>Competing for venue slots</Text>
-            </View>
-            <Text style={{ color: C.text, fontSize: 28, fontWeight: "900" }}>{displayName}</Text>
-            <Text style={{ color: C.muted, fontWeight: "700", marginTop: SPACE.xs }}>@{handle}</Text>
-            <Text style={{ color: ROLE.artist.soft, marginTop: SPACE.md, lineHeight: 22, fontSize: 13 }}>
-              Fans back you in open battles. Win the leaderboard and the venue books your slot.
-            </Text>
-          </View>
-
-          <SectionLabel>WHAT TO DO NEXT</SectionLabel>
-          <ProfileActionRow
-            title="Browse open battles"
-            subtitle="Find genre-matched slots and apply before the lineup fills"
-            onPress={onExploreBattles}
-            accent={ROLE.artist}
-          />
-          <ProfileActionRow
-            title={`Your applications (${battleApplications})`}
-            subtitle="Track battles you've entered and how close you are to the lead"
-            onPress={onExploreBattles}
-            accent={ROLE.artist}
-          />
-
-          <SectionLabel>YOUR MOMENTUM</SectionLabel>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: SPACE.lg }}>
-            {artistMetrics.map((s) => (
-              <View
-                key={s.label}
-                style={{
-                  width: "48%",
-                  backgroundColor: C.card,
-                  borderRadius: 18,
-                  padding: SPACE.md,
-                  marginBottom: SPACE.sm,
-                  marginRight: "2%",
-                  borderWidth: 1,
-                  borderColor: ROLE.artist.border,
-                }}
-              >
-                <Text style={{ color: ROLE.artist.primary, fontSize: 24, fontWeight: "900" }}>{s.value}</Text>
-                <Text style={{ color: C.text, fontSize: 11, fontWeight: "800", marginTop: SPACE.xs }}>{s.label}</Text>
-                <Text style={{ color: C.dim, fontSize: 10, marginTop: 4, lineHeight: 14 }}>{s.hint}</Text>
-              </View>
-            ))}
-          </View>
-        </>
-      ) : (
-        <>
-          <View
-            style={{
-              backgroundColor: C.card,
-              borderRadius: 28,
-              padding: SPACE.lg,
-              marginBottom: SPACE.md,
-              borderWidth: 2,
-              borderColor: activeRole.border,
-            }}
-          >
-            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginBottom: SPACE.sm }}>
-              <Text style={{ color: ROLE.fan.soft, fontSize: 11, fontWeight: "700", marginRight: SPACE.sm }}>
-                FAN PROFILE
-              </Text>
-              <FanLevelBadge reputation={reputation} />
-            </View>
-            <Text style={{ color: C.text, fontSize: 26, fontWeight: "900" }}>@{handle}</Text>
-            <Text style={{ color: level.color, fontWeight: "900", fontSize: 18, marginTop: SPACE.xs }}>
-              {level.title}
-            </Text>
-            {nextLevel ? (
-              <View style={{ marginTop: SPACE.md }}>
-                <Text style={{ color: C.dim, fontSize: 12, marginBottom: SPACE.xs }}>
-                  {repToNext} rep to {nextLevel.title}
-                </Text>
-                <View style={{ height: 6, backgroundColor: C.border, borderRadius: 999, overflow: "hidden" }}>
-                  <View
-                    style={{
-                      width: `${Math.min((reputation / nextLevel.min) * 100, 100)}%`,
-                      height: "100%",
-                      backgroundColor: ROLE.fan.primary,
-                    }}
-                  />
-                </View>
-              </View>
-            ) : null}
-          </View>
-
-          {!isArtistApproved ? (
-            <View
-              style={{
-                backgroundColor: C.surface,
-                borderRadius: 20,
-                marginBottom: SPACE.lg,
-                borderWidth: 1,
-                borderColor: C.border,
-                overflow: "hidden",
-              }}
-            >
-              <IllustrationBackdrop
-                illustrationKey="performance-dancer-placeholder"
-                cropFocusY={0.48}
-                height={72}
-                scrimOpacity={0.78}
-                borderRadius={0}
-              >
-                <View style={{ paddingHorizontal: SPACE.md, paddingVertical: 8 }}>
-                  <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>PERFORMANCE · ARTIST</Text>
-                </View>
-              </IllustrationBackdrop>
-              <View style={{ padding: SPACE.md, paddingTop: SPACE.sm }}>
-              <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>WANT TO COMPETE ON STAGE?</Text>
-              <Text style={{ color: C.text, fontWeight: "800", fontSize: 15, marginTop: SPACE.xs, lineHeight: 22 }}>
-                Apply as an artist to enter venue battles. Fans still back you — you just compete for the slot.
-              </Text>
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginTop: SPACE.md,
-                  paddingTop: SPACE.sm,
-                  borderTopWidth: 1,
-                  borderTopColor: C.border,
-                }}
-              >
-                <Text style={{ color: artistStatusColor(artistRoleStatus), fontWeight: "900", fontSize: 15 }}>
-                  {artistStatusLabel(artistRoleStatus)}
-                </Text>
-              </View>
-              {artistRoleStatus === "not_applied" ? (
-                <TouchableOpacity
-                  onPress={onApplyForArtist}
-                  style={{
-                    marginTop: SPACE.md,
-                    backgroundColor: ROLE.artist.bg,
-                    borderRadius: 14,
-                    paddingVertical: 14,
-                    alignItems: "center",
-                    borderWidth: 1,
-                    borderColor: ROLE.artist.border,
-                  }}
-                >
-                  <Text style={{ color: ROLE.artist.primary, fontWeight: "900" }}>Apply for artist role</Text>
-                </TouchableOpacity>
-              ) : null}
-              {artistRoleStatus === "pending" ? (
-                <Text style={{ color: C.muted, marginTop: SPACE.sm, lineHeight: 22 }}>
-                  We're reviewing your application. You'll be able to switch to Artist view once approved.
-                </Text>
-              ) : null}
-              </View>
-            </View>
-          ) : (
-            <TouchableOpacity
-              onPress={() => onProfileModeChange("artist")}
-              style={{
-                backgroundColor: ROLE.artist.bg,
-                borderRadius: 18,
-                padding: SPACE.md,
-                marginBottom: SPACE.lg,
-                borderWidth: 1,
-                borderColor: ROLE.artist.border,
-              }}
-            >
-              <Text style={{ color: ROLE.artist.primary, fontWeight: "900" }}>Switch to Artist view →</Text>
-              <Text style={{ color: ROLE.artist.soft, marginTop: 4, fontSize: 12 }}>
-                Manage battles, backers, and slot progress
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          <SectionLabel>YOUR ACTIVITY</SectionLabel>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: SPACE.lg }}>
-            {fanStats.map((s) => (
-              <View
-                key={s.label}
-                style={{
-                  width: "48%",
-                  backgroundColor: ROLE.fan.bg + "99",
-                  borderRadius: 18,
-                  padding: SPACE.md,
-                  marginBottom: SPACE.sm,
-                  marginRight: "2%",
-                  borderWidth: 1,
-                  borderColor: ROLE.fan.border,
-                }}
-              >
-                <Text style={{ color: C.text, fontSize: 22, fontWeight: "900" }}>{s.value}</Text>
-                <Text style={{ color: C.text, fontSize: 11, fontWeight: "800", marginTop: SPACE.xs }}>{s.label}</Text>
-                <Text style={{ color: C.dim, fontSize: 10, marginTop: 4 }}>{s.hint}</Text>
-              </View>
-            ))}
-          </View>
-        </>
-      )}
-
-      {isCurator ? (
-        <>
-          <SectionLabel>CURATOR TOOLS</SectionLabel>
-          <TouchableOpacity
-            onPress={onOpenVenueAdmin}
-            style={{
-              backgroundColor: ROLE.venue.bg,
-              borderRadius: 20,
-              padding: SPACE.md,
-              borderWidth: 1,
-              borderColor: ROLE.venue.border,
-              marginBottom: SPACE.sm,
-            }}
-          >
-            <Text style={{ color: ROLE.venue.primary, fontWeight: "800", textAlign: "center" }}>
-              Venue admin · Lineups & slots
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={onOpenCuratorTools}
-            style={{ backgroundColor: ROLE.curator.bg, borderRadius: 20, padding: SPACE.md, borderWidth: 1, borderColor: ROLE.curator.border, marginBottom: SPACE.sm }}
-          >
-            <Text style={{ color: ROLE.curator.primary, fontWeight: "800", textAlign: "center" }}>
-              Demand scout · 수요 캠페인 기획
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={onOpenOnecoreAdmin}
-            style={{ backgroundColor: "#422006", borderRadius: 20, padding: SPACE.md, borderWidth: 1, borderColor: C.gold + "66" }}
-          >
-            <Text style={{ color: C.gold, fontWeight: "800", textAlign: "center" }}>ONECORE Admin · Race & logs</Text>
-          </TouchableOpacity>
-        </>
-      ) : null}
-    </>
-  );
-}
-
 type ArtistApprovalFilter = "pending" | "approved" | "rejected" | "all";
 
 function artistRequestStatusColor(status: ArtistRoleRequestStatus) {
@@ -5773,7 +5301,6 @@ function AppContent() {
   const [reputation, setReputation] = useState(185);
   const [fanInvites, setFanInvites] = useState<FanInvite[]>([]);
   const [artistApplications, setArtistApplications] = useState<ArtistApplication[]>([]);
-  const [profileMode, setProfileMode] = useState<ProfileMode>("fan");
   const [artistRoleStatus, setArtistRoleStatus] = useState<ArtistApprovalStatus>("not_applied");
   const [artistStageName, setArtistStageName] = useState("");
   const [artistRoleRequests, setArtistRoleRequests] = useState<ArtistRoleRequest[]>(SEED_ARTIST_ROLE_REQUESTS);
@@ -5900,6 +5427,19 @@ function AppContent() {
       })
       .filter((x): x is { race: Race; artist: NonNullable<ReturnType<typeof artistById>> } => x !== null);
   }, [onecoreState]);
+
+  const myOnecoreJoined = useMemo(() => {
+    return onecoreState.commitments
+      .filter((c) => c.userId === onecoreUserId)
+      .map((c) => {
+        const race = onecoreState.races.find((r) => r.id === c.raceId);
+        if (!race) return null;
+        const artist = artistById(onecoreState, race.artistId);
+        if (!artist) return null;
+        return { race, artist, phase: resolveOnecoreFanPhase(race) };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+  }, [onecoreState, onecoreUserId]);
 
   const openOnecoreRace = (raceId: string) => {
     setSelectedRaceId(raceId);
@@ -6464,40 +6004,38 @@ function AppContent() {
         );
       case "profile":
         return (
-          <ProfileScreen
+          <MyFanstageProfile
             handle={fanHandle}
-            profileMode={profileMode}
-            onProfileModeChange={(m) => {
-              if (m === "artist" && artistRoleStatus !== "approved") return;
-              setProfileMode(m);
-            }}
-            reputation={reputation}
-            picksCount={Object.keys(venueBackings).length}
-            invites={fanInvites.length}
-            battleApplications={artistApplications.length}
+            displayName={artistStageName || undefined}
+            joinedCampaigns={myOnecoreJoined}
+            recommendations={fanRecommendations}
+            readyTickets={wonTickets.map((t) => ({ artist: t.artist, venue: t.venue, date: t.date }))}
+            coresJoinedCount={myOnecoreJoined.length}
+            recommendationsCount={fanRecommendations.length}
+            readyTicketCount={wonTickets.length}
             artistRoleStatus={artistRoleStatus}
-            artistStageName={artistStageName}
+            isCurator={isCurator}
+            onOpenCampaign={openOnecoreRace}
+            onOpenFanRecommend={() => setOverlay("fanRecommend")}
+            onGoTickets={() => setActiveTab("tickets")}
             onApplyForArtist={() => {
               queueArtistRoleApplication(artistStageName || "Mike Seoul", "profile", "Profile artist role application");
               openApply();
             }}
-            onExploreBattles={() => setActiveTab("discover")}
+            onOpenOnecoreAdmin={() => setOverlay("adminRace")}
             onOpenVenueAdmin={() => setOverlay("venueAdmin")}
             onOpenCuratorTools={() => setOverlay("curatorTools")}
-            onOpenOnecoreAdmin={() => setOverlay("adminRace")}
-            isCurator={isCurator}
+            onSettingsAction={(key) => {
+              if (key === "notifications") showToast("알림 설정은 준비 중이에요.");
+              else if (key === "refund") showToast("코어 예치금은 공연이 열리지 않으면 환불됩니다.");
+              else showToast(`@${fanHandle} 계정 설정`);
+            }}
           />
         );
       default:
         return (
           <VenueFeedScreen
-            district={district}
-            onDistrictChange={setDistrict}
-            genreFilter={genreFilter}
-            onGenreFilterChange={setGenreFilter}
-            statusFilter={statusFilter}
-            onStatusFilterChange={setStatusFilter}
-            venues={filteredVenues}
+            venues={venues}
             venueBackings={venueBackings}
             wonTickets={wonTickets}
             onOpenVenue={openVenue}

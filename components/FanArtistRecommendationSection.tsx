@@ -24,14 +24,14 @@ export function FanArtistRecommendationSection({ recommendations, onRecommend }:
     <View style={{ marginBottom: 20 }}>
       <View
         style={{
-          backgroundColor: C.card,
+          backgroundColor: "#111827",
           borderRadius: 16,
-          padding: 14,
+          padding: 15,
           borderWidth: 1,
-          borderColor: C.gold + "44",
+          borderColor: C.gold + "88",
         }}
       >
-        <Text style={{ color: C.gold, fontWeight: "900", fontSize: 10, letterSpacing: 0.8 }}>팬 추천</Text>
+        <Text style={{ color: C.gold, fontWeight: "900", fontSize: 10, letterSpacing: 0.8 }}>팬 추천 · 새 캠페인 제안</Text>
         <Text style={{ color: C.text, fontWeight: "900", fontSize: 16, marginTop: 6, lineHeight: 22 }}>
           공연 열고 싶은 아티스트가 있나요?
         </Text>
