@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Switch } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OnecoreState, Race, RaceDraft, RaceEventLog, RaceStatus } from "./types";
 import { raceStatusLabel } from "./copy";
 import { allStatuses } from "./logic";
@@ -38,6 +39,7 @@ const emptyDraft = (): RaceDraft => ({
 });
 
 export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, onStatusChange }: Props) {
+  const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<AdminMode>("list");
   const [selectedId, setSelectedId] = useState(state.races[0]?.id ?? "");
   const [draft, setDraft] = useState<RaceDraft>(emptyDraft());
@@ -48,6 +50,11 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
 
   const selected = state.races.find((r) => r.id === selectedId);
   const logs = state.eventLogs.filter((l) => l.raceId === selectedId);
+  const screenContentStyle = {
+    paddingHorizontal: S.lg,
+    paddingTop: Math.max(insets.top + S.lg, 56),
+    paddingBottom: Math.max(insets.bottom + S.xl, S.xl),
+  };
 
   const openEdit = (race?: Race) => {
     if (race) {
@@ -95,7 +102,7 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
 
   if (mode === "edit") {
     return (
-      <ScrollView contentContainerStyle={{ paddingBottom: S.xl }}>
+      <ScrollView style={{ flex: 1, backgroundColor: OC.bg }} contentContainerStyle={screenContentStyle}>
         <Header title={isNew ? "Race 생성" : "Race 수정"} onBack={() => setMode("list")} />
         <Field label="제목" value={draft.title} onChange={(t) => setDraft((d) => ({ ...d, title: t }))} />
         <Text style={{ color: OC.dim, fontSize: 12, marginBottom: S.sm }}>아티스트 ID</Text>
@@ -149,7 +156,7 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
 
   if (mode === "status" && selected) {
     return (
-      <ScrollView contentContainerStyle={{ paddingBottom: S.xl }}>
+      <ScrollView style={{ flex: 1, backgroundColor: OC.bg }} contentContainerStyle={screenContentStyle}>
         <Header title="상태 변경" onBack={() => setMode("list")} />
         <Text style={{ color: OC.muted, marginBottom: S.md }}>
           현재: {raceStatusLabel(selected.status)} · {selected.currentCount}/{selected.targetCount}
@@ -195,7 +202,7 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
 
   if (mode === "logs") {
     return (
-      <ScrollView contentContainerStyle={{ paddingBottom: S.xl }}>
+      <ScrollView style={{ flex: 1, backgroundColor: OC.bg }} contentContainerStyle={screenContentStyle}>
         <Header title="상태 변경 로그" onBack={() => setMode("list")} />
         {logs.length === 0 ? (
           <Text style={{ color: OC.dim }}>로그가 없습니다.</Text>
@@ -207,7 +214,7 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
   }
 
   return (
-    <ScrollView contentContainerStyle={{ paddingBottom: S.xl }}>
+    <ScrollView style={{ flex: 1, backgroundColor: OC.bg }} contentContainerStyle={screenContentStyle}>
       <Header title="ONECORE Race Admin" onBack={onBack} />
       <Text style={{ color: OC.muted, marginBottom: S.md, lineHeight: 20 }}>
         Race 생성/수정 · 상태 변경은 반드시 RaceEventLog에 기록됩니다.
@@ -273,9 +280,13 @@ export function AdminRaceScreen({ state, adminId, onBack, onCreate, onUpdate, on
 
 function Header({ title, onBack }: { title: string; onBack: () => void }) {
   return (
-    <View style={{ marginBottom: S.md }}>
-      <TouchableOpacity onPress={onBack}>
-        <Text style={{ color: OC.dim, fontWeight: "700", marginBottom: S.sm }}>← 뒤로</Text>
+    <View style={{ marginBottom: S.lg }}>
+      <TouchableOpacity
+        onPress={onBack}
+        hitSlop={{ top: 12, right: 16, bottom: 12, left: 16 }}
+        style={{ alignSelf: "flex-start", marginBottom: S.lg }}
+      >
+        <Text style={{ color: OC.muted, fontWeight: "800", fontSize: 15 }}>← 뒤로</Text>
       </TouchableOpacity>
       <Text style={{ color: OC.text, fontWeight: "900", fontSize: 22 }}>{title}</Text>
       <Text style={{ color: OC.dim, fontSize: 12, marginTop: 4 }}>운영자 · {title}</Text>

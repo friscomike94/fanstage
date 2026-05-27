@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Switch } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Artist, OnecoreState, Race, RefundPolicy, VenueCandidate } from "./types";
 import {
   buildPreparationSteps,
@@ -63,6 +64,7 @@ export function RaceProposalScreen({
   onCommit,
   commitError,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [showCommit, setShowCommit] = useState(false);
   const [displayConsent, setDisplayConsent] = useState(true);
   const [isAnonymous, setIsAnonymous] = useState(false);
@@ -77,6 +79,9 @@ export function RaceProposalScreen({
     race.status === "target_reached" ||
     race.status === "admin_review" ||
     race.status === "show_preparation" ||
+    race.status === "artist_contacting" ||
+    race.status === "venue_matching" ||
+    race.status === "confirming_terms" ||
     race.status === "artist_confirmed" ||
     race.status === "venue_confirmed" ||
     race.status === "date_confirmed" ||
@@ -86,9 +91,21 @@ export function RaceProposalScreen({
   const fail = failed ? failureCopy(race.failureKind, race.failureMessage) : null;
 
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: S.xl }} showsVerticalScrollIndicator={false}>
-      <TouchableOpacity onPress={onBack} style={{ marginBottom: S.md }}>
-        <Text style={{ color: OC.dim, fontWeight: "700" }}>← 뒤로</Text>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: OC.bg }}
+      contentContainerStyle={{
+        paddingHorizontal: S.lg,
+        paddingTop: Math.max(insets.top + S.lg, 56),
+        paddingBottom: Math.max(insets.bottom + S.xl, S.xl),
+      }}
+      showsVerticalScrollIndicator={false}
+    >
+      <TouchableOpacity
+        onPress={onBack}
+        hitSlop={{ top: 12, right: 16, bottom: 12, left: 16 }}
+        style={{ alignSelf: "flex-start", marginBottom: S.lg }}
+      >
+        <Text style={{ color: OC.muted, fontWeight: "800", fontSize: 15 }}>← 뒤로</Text>
       </TouchableOpacity>
 
       <Text style={{ color: OC.gold, fontWeight: "900", fontSize: 11, letterSpacing: 1.2 }}>ONECORE · 공연 제안</Text>

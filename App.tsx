@@ -56,11 +56,11 @@ const FANSTAGE_TAGLINE = "팬스테이지는 팬이 무대를 현실로 만드�
 const FANSTAGE_HERO_MAIN = "팬이 모이면, 무대가 열린다";
 const FANSTAGE_HERO_SUB =
   "한 공연장, 한 번의 선택. 가장 많은 지지를 받은 팀이 실제 무대에 오릅니다.";
-const ONECORE_TAGLINE_SHORT = "100명의 코어가 모이면, 한 팀의 밤이 열립니다.";
+const ONECORE_TAGLINE_SHORT = "100명의 코어가 모이면, 한 팀의 밤이 공연 준비 단계로 넘어갑니다.";
 const ONECORE_RACE_LEAD = "지금 무대에 가장 가까운 팀";
-const ONECORE_RACE_FINISH = "100코어를 먼저 채운 한 팀이 단독 공연을 엽니다.";
+const ONECORE_RACE_FINISH = "100코어를 먼저 채운 한 팀이 단독 공연 준비 단계로 넘어갑니다.";
 const ONECORE_LINEUP_TITLE = "누가 이 밤의 주인공이 될까요?";
-const ONECORE_RULE_SUMMARY = "100코어를 먼저 채운 한 팀이 단독 공연을 엽니다. 실패 시 전액 환불.";
+const ONECORE_RULE_SUMMARY = "100코어를 먼저 채운 한 팀이 공연 준비 단계로 넘어갑니다. 실패 시 전액 환불.";
 const ONECORE_SOLO_CORE_GOAL = 100;
 const ONECORE_ALMOST_THERE_REMAINING = 35;
 
@@ -1074,8 +1074,11 @@ function momentumStyle(m: VenueMomentum) {
 
 function formatCountdown(c: VenueCompetition["countdown"]) {
   if (c.days === 0 && c.hours === 0 && c.minutes === 0) return "종료";
-  if (c.days > 0) return `${c.days}일 ${c.hours}시간 ${c.minutes}분`;
-  return `${c.hours}시간 ${c.minutes}분`;
+  const parts: string[] = [];
+  if (c.days > 0) parts.push(`${c.days}일`);
+  if (c.hours > 0) parts.push(`${c.hours}시간`);
+  if (c.minutes > 0) parts.push(`${c.minutes}분`);
+  return parts.join(" ");
 }
 
 function countdownEnded(c: VenueCompetition["countdown"]) {
@@ -3680,17 +3683,23 @@ function BackingConfirmationScreen({
 }) {
   const sorted = sortedArtists(venue);
   const rank = sorted.findIndex((a) => a.id === artist.id) + 1;
+  const { remaining } = campaignPledgeStats(artist.supporters, venue.minGoal);
+  const deadlineText = countdownEnded(venue.countdown) ? "마감됐어요." : `마감까지 ${formatCountdown(venue.countdown)} 남았어요.`;
+  const backingContext =
+    remaining > 0
+      ? `#${rank} · ${venue.venueName}. ${remaining}명만 더 모이면 최소 성사 기준을 넘어요.`
+      : `#${rank} · ${venue.venueName}. 최소 성사 기준을 넘었고, ${deadlineText}`;
 
   return (
     <>
       <View style={{ alignItems: "center", paddingTop: SPACE.xl, marginBottom: SPACE.lg }}>
         <Text style={{ fontSize: 48, marginBottom: SPACE.md }}>🎯</Text>
-        <Text style={{ color: C.accentSoft, fontWeight: "800" }}>PICK REGISTERED</Text>
+        <Text style={{ color: C.accentSoft, fontWeight: "800" }}>픽 등록 완료</Text>
         <Text style={{ color: C.text, fontSize: 28, fontWeight: "900", textAlign: "center", marginTop: SPACE.sm }}>
-          You're backing {artist.name}
+          {artist.name}를 밀고 있어요
         </Text>
         <Text style={{ color: C.muted, textAlign: "center", marginTop: SPACE.sm, lineHeight: 24, paddingHorizontal: SPACE.md }}>
-          #{rank} at {venue.venueName}. Rally more backers before {formatCountdown(venue.countdown)}.
+          {backingContext}
         </Text>
       </View>
       <View style={{ backgroundColor: C.card, borderRadius: 24, padding: SPACE.md, marginBottom: SPACE.lg }}>
@@ -3700,7 +3709,7 @@ function BackingConfirmationScreen({
         <Text style={{ color: C.ink, fontWeight: "900", fontSize: 17 }}>내 픽 보기</Text>
       </TouchableOpacity>
       <TouchableOpacity onPress={onFeed} style={{ paddingVertical: SPACE.md, alignItems: "center" }}>
-        <Text style={{ color: C.accentSoft, fontWeight: "800" }}>Browse more venue battles</Text>
+        <Text style={{ color: C.accentSoft, fontWeight: "800" }}>다른 공연장 배틀 보기</Text>
       </TouchableOpacity>
     </>
   );
@@ -5988,6 +5997,7 @@ function AppContent() {
 
   const overlayContent = renderOverlayContent();
   const overlayUsesSafeBack = overlay === "venueDetail" || overlay === "artistDetail";
+  const overlayOwnsScroll = overlay === "raceProposal" || overlay === "adminRace";
 
   const handleOverlaySafeBack = () => {
     if (overlay === "artistDetail") closeArtistDetail();
@@ -6002,7 +6012,7 @@ function AppContent() {
       {overlayContent ? (
         <View style={SCREEN_OVERLAY}>
           {overlayUsesSafeBack ? <OverlayBackHeader onPress={handleOverlaySafeBack} /> : null}
-          {overlay === "artistDetail" ? (
+          {overlay === "artistDetail" || overlayOwnsScroll ? (
             <View style={{ flex: 1 }}>{overlayContent}</View>
           ) : (
             <ScrollView

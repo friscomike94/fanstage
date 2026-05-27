@@ -60,7 +60,10 @@ export function applyRaceStatusChange(
           failureKind: opts?.failureKind ?? r.failureKind,
           failureMessage: opts?.failureMessage ?? r.failureMessage,
           showPreparationStatus:
-            toStatus === "show_preparation"
+            toStatus === "show_preparation" ||
+            toStatus === "artist_contacting" ||
+            toStatus === "venue_matching" ||
+            toStatus === "confirming_terms"
               ? "in_progress"
               : toStatus === "ticketing_ready"
                 ? "complete"
@@ -235,6 +238,9 @@ export function allStatuses(): RaceStatus[] {
     "target_reached",
     "admin_review",
     "show_preparation",
+    "artist_contacting",
+    "venue_matching",
+    "confirming_terms",
     "artist_confirmed",
     "venue_confirmed",
     "date_confirmed",
