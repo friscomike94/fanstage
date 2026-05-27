@@ -11,6 +11,8 @@ export function seedOnecoreState(): OnecoreState {
         genre: "재즈",
         tagline: "홍대 밤을 재즈로 채우는 보컬",
         bio: "팬들이 먼저 불러낸 단독 밤. 작은 클럽에서 큰 호흡으로 부릅니다.",
+        battlePitch: "즉흥 리드와 공간 장악. FF 신인 나이트에서 가장 빠르게 올라온 모던 재즈.",
+        social: { primaryPlatform: "instagram", instagram: "kimoki_jazz", youtube: "kimokijazz", spotify: "kimoki" },
       },
       {
         id: "artist-moon",
@@ -18,6 +20,8 @@ export function seedOnecoreState(): OnecoreState {
         genre: "재즈",
         tagline: "피아노와 목소리의 듀오 감성",
         bio: "감성 재즈 세트로 홍대 팬들과 맞춰 온 아티스트입니다.",
+        battlePitch: "심야 연기와 브라스 열기. FF 재즈 보컬의 중심.",
+        social: { primaryPlatform: "tiktok", tiktok: "moonmihyang", instagram: "moon_vocal" },
       },
     ],
     venueCandidates: [

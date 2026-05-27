@@ -14,6 +14,9 @@ import {
   useWindowDimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  KeyboardAvoidingView,
+  Keyboard,
+  Platform,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -40,6 +43,20 @@ import {
 } from "./onecore/logic";
 import { seedOnecoreState } from "./onecore/seed";
 import type { OnecoreState, Race, RaceDraft, RaceStatus } from "./onecore/types";
+import { BattleArtistSocialProof, openArtistSocialUrl } from "./components/BattleArtistSocialProof";
+import {
+  BattleProofPitchFields,
+  buildBattleProofPitchValue,
+  validateBattleProofPitch,
+} from "./components/BattleProofPitchFields";
+import {
+  enrichCompetingArtist,
+  formatSocialProofSummary,
+  listSocialLinks,
+  type ArtistSocialProof,
+  type SocialLinkItem,
+  type SocialPlatform,
+} from "./lib/artistSocial";
 
 const HERO_BG_VIDEO = require("./assets/hero-bg.mp4");
 
@@ -204,6 +221,8 @@ type CompetingArtist = {
   genre: string;
   supporters: number;
   tagline: string;
+  battlePitch: string;
+  social: ArtistSocialProof;
   story: string;
   latestTrack: { title: string; duration: string };
 };
@@ -929,7 +948,11 @@ const INITIAL_VENUES: VenueCompetition[] = [
       },
     ],
   },
-];
+].map((venue) => ({
+  ...venue,
+  slotGenre: venue.slotGenre as SlotGenre,
+  artists: venue.artists.map((a) => enrichCompetingArtist(a)),
+})) as VenueCompetition[];
 
 type PendingPick = {
   id: string;
@@ -969,7 +992,13 @@ type Ticket = {
 };
 
 type FanInvite = { id: string; venueId: string; profileId: string; genre: SlotGenre; note: string };
-type ArtistApplication = { id: string; venueId: string; artistName: string; pitch: string };
+type ArtistApplication = {
+  id: string;
+  venueId: string;
+  artistName: string;
+  battlePitch: string;
+  social: ArtistSocialProof;
+};
 
 type ArtistRoleRequestStatus = "pending" | "approved" | "rejected";
 
@@ -982,6 +1011,8 @@ type ArtistRoleRequest = {
   source: "profile" | "battle";
   slotGenre: SlotGenre;
   note?: string;
+  battlePitch?: string;
+  social?: ArtistSocialProof;
 };
 
 type ApprovedArtist = {
@@ -1004,6 +1035,8 @@ const SEED_ARTIST_ROLE_REQUESTS: ArtistRoleRequest[] = [
     source: "battle",
     slotGenre: "Electronic",
     note: "House · K-electronic · Modeci slot ready",
+    battlePitch: "K-일렉 하우스. 모데시에서 커리어 분기점이 될 수 있는 세트. 팬들이 먼저 만들어내는 밤.",
+    social: { primaryPlatform: "tiktok", tiktok: "yuna_flux", spotify: "yunaflux", instagram: "yuna_mix" },
   },
   {
     id: "req-han",
@@ -1014,6 +1047,8 @@ const SEED_ARTIST_ROLE_REQUESTS: ArtistRoleRequest[] = [
     source: "profile",
     slotGenre: "Jazz",
     note: "Modern jazz · Club FF applications",
+    battlePitch: "한강의 재즈. 현대적인 편성과 실험적인 즉흥 연주로 클럽 FF의 밤을 채웁니다.",
+    social: { primaryPlatform: "youtube", youtube: "hanriverjazz", soundcloud: "han-archive-seoul", instagram: "han_archive" },
   },
   {
     id: "req-kontra",
@@ -1024,6 +1059,8 @@ const SEED_ARTIST_ROLE_REQUESTS: ArtistRoleRequest[] = [
     source: "battle",
     slotGenre: "Hip-hop",
     note: "K-rap · Velvet Hall winner path",
+    battlePitch: "성수 랩과 라이브 밴드 파워. 112명의 서포트가 만든 벨벳홀 승리.",
+    social: { primaryPlatform: "youtube", youtube: "kontraseoul", instagram: "kontra_seoul" },
   },
 ];
 
@@ -1283,7 +1320,7 @@ function addArtistToVenueLineup(venue: VenueCompetition, artist: ApprovedArtist)
   if (venue.slotGenre !== artist.slotGenre) return null;
   if (venue.artists.some((a) => a.id === artist.id || a.name === artist.stageName)) return null;
 
-  const entrant: CompetingArtist = {
+  const entrant: CompetingArtist = enrichCompetingArtist({
     id: artist.id,
     name: artist.stageName,
     genre: artist.genre,
@@ -1291,7 +1328,8 @@ function addArtistToVenueLineup(venue: VenueCompetition, artist: ApprovedArtist)
     tagline: artist.tagline,
     story: artist.story,
     latestTrack: { title: "Battle entry", duration: "3:42" },
-  };
+    social: { instagram: artist.handle },
+  });
 
   return {
     ...venue,
@@ -1301,20 +1339,30 @@ function addArtistToVenueLineup(venue: VenueCompetition, artist: ApprovedArtist)
 }
 
 function applicationToCompetingArtist(app: ArtistApplication, venue: VenueCompetition): CompetingArtist {
-  return {
+  return enrichCompetingArtist({
     id: `app-${app.id}`,
     name: app.artistName,
     genre: genreLabelForSlot(venue.slotGenre),
     supporters: 18,
-    tagline: app.pitch.slice(0, 48),
-    story: app.pitch,
+    tagline: app.battlePitch.slice(0, 48),
+    battlePitch: app.battlePitch,
+    social: app.social,
+    story: app.battlePitch,
     latestTrack: { title: "Application demo", duration: "3:20" },
-  };
+  });
 }
 
 function enqueueArtistRoleRequest(
   prev: ArtistRoleRequest[],
-  payload: { handle: string; stageName: string; source: ArtistRoleRequest["source"]; slotGenre?: SlotGenre; note?: string }
+  payload: {
+    handle: string;
+    stageName: string;
+    source: ArtistRoleRequest["source"];
+    slotGenre?: SlotGenre;
+    note?: string;
+    battlePitch?: string;
+    social?: ArtistSocialProof;
+  }
 ): ArtistRoleRequest[] {
   const existing = prev.find((r) => r.handle === payload.handle);
   if (existing?.status === "approved") return prev;
@@ -1329,6 +1377,8 @@ function enqueueArtistRoleRequest(
             source: payload.source,
             slotGenre: payload.slotGenre ?? r.slotGenre,
             note: payload.note ?? r.note,
+            battlePitch: payload.battlePitch ?? r.battlePitch,
+            social: payload.social ?? r.social,
           }
         : r
     );
@@ -1343,6 +1393,8 @@ function enqueueArtistRoleRequest(
       source: payload.source,
       slotGenre: payload.slotGenre ?? "Indie",
       note: payload.note,
+      battlePitch: payload.battlePitch,
+      social: payload.social,
     },
     ...prev,
   ];
@@ -3169,6 +3221,21 @@ function CoreRaceCard({
   );
 }
 
+function BattleArtistPitchBlock({ artist, compact }: { artist: CompetingArtist; compact?: boolean }) {
+  return (
+    <View style={{ marginTop: compact ? SPACE.sm : SPACE.md }}>
+      <Text style={{ color: C.dim, fontSize: 11, fontWeight: "800", letterSpacing: 0.3, marginBottom: 4 }}>팬들이 응원할 이유</Text>
+      <Text
+        style={{ color: C.muted, fontSize: compact ? 13 : 14, lineHeight: compact ? 20 : 22, fontWeight: "600" }}
+        numberOfLines={compact ? 2 : 3}
+      >
+        {artist.battlePitch}
+      </Text>
+      <BattleArtistSocialProof social={artist.social} compact={compact} sectionLabel="아티스트 확인하기" />
+    </View>
+  );
+}
+
 function BattleLineupSectionHeader({ teamCount }: { teamCount: number }) {
   return (
     <View style={{ marginBottom: SPACE.md }}>
@@ -3218,6 +3285,8 @@ function BattleLeaderRaceCard({
         </Text>
         <Text style={{ color: C.dim, marginTop: 4, fontSize: 13, fontWeight: "600" }}>{artist.genre}</Text>
       </TouchableOpacity>
+
+      <BattleArtistPitchBlock artist={artist} />
 
       <View style={{ marginTop: SPACE.lg }}>
         {isUserPick ? (
@@ -3274,13 +3343,19 @@ function BattleChaserRaceCard({
         borderColor: isUserPick ? ROLE.fan.border : C.border,
       }}
     >
-      <TouchableOpacity onPress={onOpenArtist} activeOpacity={0.85} style={{ flex: 1 }}>
-        <Text style={{ color: C.dim, fontWeight: "800", fontSize: 11 }}>{rank}위</Text>
-        <View style={{ flexDirection: "row", alignItems: "baseline", marginTop: 2, flexWrap: "wrap" }}>
-          <Text style={{ color: C.text, fontWeight: "800", fontSize: 16 }}>{artist.name}</Text>
-          <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 15, marginLeft: SPACE.sm }}>{artist.supporters}코어</Text>
-        </View>
-      </TouchableOpacity>
+      <View style={{ flex: 1 }}>
+        <TouchableOpacity onPress={onOpenArtist} activeOpacity={0.85}>
+          <Text style={{ color: C.dim, fontWeight: "800", fontSize: 11 }}>{rank}위</Text>
+          <View style={{ flexDirection: "row", alignItems: "baseline", marginTop: 2, flexWrap: "wrap" }}>
+            <Text style={{ color: C.text, fontWeight: "800", fontSize: 16 }}>{artist.name}</Text>
+            <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 15, marginLeft: SPACE.sm }}>{artist.supporters}코어</Text>
+          </View>
+          <Text style={{ color: C.dim, fontSize: 12, marginTop: 4, lineHeight: 17 }} numberOfLines={2}>
+            {artist.battlePitch}
+          </Text>
+        </TouchableOpacity>
+        <BattleArtistSocialProof social={artist.social} compact sectionLabel="소셜 증거" />
+      </View>
 
       {isUserPick ? (
         <Text style={{ color: ROLE.fan.soft, fontSize: 11, fontWeight: "700" }}>서포트 중</Text>
@@ -3599,6 +3674,10 @@ function ArtistDetailScreen({
       <Text style={{ color: C.rival, fontWeight: "800", fontSize: 11, marginBottom: SPACE.md }}>{artistCampaignEyebrow(artist)}</Text>
 
       <DemandSurfaceBlock copy={demand} artist={artist} venue={venue} stage={stage} />
+
+      <ShowCard>
+        <BattleArtistPitchBlock artist={artist} />
+      </ShowCard>
 
       {isUserPick && stage !== "almost_there" ? (
         <ShowCard>
@@ -4247,6 +4326,75 @@ function InviteArtistFlow({
   );
 }
 
+function scrollFormAnchorIntoView(
+  scrollRef: React.RefObject<ScrollView | null>,
+  contentRef: React.RefObject<View | null>,
+  anchorRef: React.RefObject<View | null>,
+  extraOffset = 48
+) {
+  const content = contentRef.current;
+  const anchor = anchorRef.current;
+  if (!content || !anchor) return;
+  anchor.measureLayout(
+    content,
+    (_x, y) => {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - extraOffset), animated: true });
+    },
+    () => {}
+  );
+}
+
+function ArtistOnboardingKeyboardScroll({
+  children,
+  scrollRef,
+  contentRef,
+}: {
+  children: React.ReactNode;
+  scrollRef: React.RefObject<ScrollView | null>;
+  contentRef: React.RefObject<View | null>;
+}) {
+  const insets = useSafeAreaInsets();
+  const [keyboardInset, setKeyboardInset] = useState(0);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, (e) => setKeyboardInset(e.endCoordinates.height));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardInset(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const bottomPad = Math.max(140, keyboardInset + insets.bottom + 72);
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
+    >
+      <ScrollView
+        ref={scrollRef}
+        style={{ flex: 1 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingHorizontal: SPACE.md,
+          paddingTop: SPACE.sm,
+          paddingBottom: bottomPad,
+        }}
+      >
+        <View ref={contentRef} collapsable={false}>
+          {children}
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
 function ApplyBattleFlow({
   venues,
   preselectedVenue,
@@ -4259,19 +4407,37 @@ function ApplyBattleFlow({
   preselectedVenue: VenueCompetition | null;
   onBack: () => void;
   onSubmit: (app: ArtistApplication) => void;
-  onArtistRolePending: (stageName: string, slotGenre: SlotGenre) => void;
+  onArtistRolePending: (stageName: string, slotGenre: SlotGenre, battlePitch?: string, social?: ArtistSocialProof) => void;
   onViewVenue: (venueId: string) => void;
 }) {
   const openVenues = venues.filter((v) => !v.winnerId && v.slotsOpen > 0);
   const [venueId, setVenueId] = useState(preselectedVenue?.id ?? openVenues[0]?.id ?? "");
   const [artistName, setArtistName] = useState("");
-  const [pitch, setPitch] = useState("");
+  const [proofPlatform, setProofPlatform] = useState<SocialPlatform>("instagram");
+  const [proofInput, setProofInput] = useState("");
+  const [battlePitch, setBattlePitch] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const venue = openVenues.find((v) => v.id === venueId) ?? preselectedVenue;
+  const scrollRef = useRef<ScrollView>(null);
+  const contentRef = useRef<View>(null);
+  const proofAnchorRef = useRef<View>(null);
+  const pitchAnchorRef = useRef<View>(null);
+  const nameAnchorRef = useRef<View>(null);
+
+  const scrollAnchor = useCallback(
+    (anchorRef: React.RefObject<View | null>, offset = 48) => {
+      scrollFormAnchorIntoView(scrollRef, contentRef, anchorRef, offset);
+      if (Platform.OS === "ios") {
+        setTimeout(() => scrollFormAnchorIntoView(scrollRef, contentRef, anchorRef, offset), 280);
+      }
+    },
+    []
+  );
 
   if (done && venue) {
     return (
-      <>
+      <ArtistOnboardingKeyboardScroll scrollRef={scrollRef} contentRef={contentRef}>
         <ScreenHeader title="Application in" subtitle={`${artistName} is queued for ${venue.venueName}.`} onBack={onBack} eyebrow="ARTIST ONBOARDING" />
         <View style={{ backgroundColor: C.card, borderRadius: 28, padding: SPACE.xl, alignItems: "center", marginBottom: SPACE.lg }}>
           <Text style={{ fontSize: 48, marginBottom: SPACE.md }}>🎤</Text>
@@ -4289,12 +4455,12 @@ function ApplyBattleFlow({
         <TouchableOpacity onPress={onBack} style={{ paddingVertical: SPACE.md, alignItems: "center" }}>
           <Text style={{ color: C.accentSoft, fontWeight: "800" }}>Back to feed</Text>
         </TouchableOpacity>
-      </>
+      </ArtistOnboardingKeyboardScroll>
     );
   }
 
   return (
-    <>
+    <ArtistOnboardingKeyboardScroll scrollRef={scrollRef} contentRef={contentRef}>
       <ScreenHeader title="Apply to battle" subtitle={`${FANSTAGE_TAGLINE} Compete within the venue's genre.`} onBack={onBack} eyebrow="ARTIST ONBOARDING" />
       <SectionLabel>OPEN GENRE SLOTS</SectionLabel>
       {openVenues.map((v) => (
@@ -4311,26 +4477,61 @@ function ApplyBattleFlow({
         </View>
       ) : null}
       <Text style={{ color: C.muted, fontWeight: "700", marginBottom: SPACE.xs }}>Artist / act name</Text>
-      <View style={{ backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
-        <TextInput placeholder="Stage name" placeholderTextColor={C.dim} value={artistName} onChangeText={setArtistName} style={{ color: C.text, fontWeight: "600" }} />
+      <View ref={nameAnchorRef} collapsable={false}>
+        <View style={{ backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 1, borderColor: C.border }}>
+          <TextInput
+            placeholder="Stage name"
+            placeholderTextColor={C.dim}
+            value={artistName}
+            onChangeText={setArtistName}
+            onFocus={() => scrollAnchor(nameAnchorRef, 56)}
+            style={{ color: C.text, fontWeight: "600" }}
+          />
+        </View>
       </View>
-      <Text style={{ color: C.muted, fontWeight: "700", marginBottom: SPACE.xs }}>Battle pitch</Text>
-      <View style={{ backgroundColor: C.card, borderRadius: 16, padding: SPACE.md, marginBottom: SPACE.lg, borderWidth: 1, borderColor: C.border }}>
-        <TextInput placeholder="Why you deserve this slot…" placeholderTextColor={C.dim} value={pitch} onChangeText={setPitch} multiline style={{ color: C.text, fontWeight: "600", minHeight: 80 }} />
-      </View>
+      <BattleProofPitchFields
+        proofPlatform={proofPlatform}
+        proofInput={proofInput}
+        battlePitch={battlePitch}
+        onProofPlatformChange={setProofPlatform}
+        onProofInputChange={setProofInput}
+        onBattlePitchChange={setBattlePitch}
+        labelsKo={false}
+        proofAnchorRef={proofAnchorRef}
+        pitchAnchorRef={pitchAnchorRef}
+        onProofInputFocus={() => scrollAnchor(proofAnchorRef, 56)}
+        onBattlePitchFocus={() => scrollAnchor(pitchAnchorRef, 72)}
+      />
+      {formError ? (
+        <Text style={{ color: C.rival, marginBottom: SPACE.md, fontWeight: "700", fontSize: 13 }}>{formError}</Text>
+      ) : null}
       <TouchableOpacity
         onPress={() => {
           if (!venue || !artistName.trim()) return;
+          const validation = validateBattleProofPitch(proofPlatform, proofInput, battlePitch);
+          if (!validation.ok) {
+            setFormError(validation.message ?? "입력을 확인해 주세요.");
+            scrollAnchor(pitchAnchorRef, 72);
+            return;
+          }
+          setFormError(null);
           const name = artistName.trim();
-          onArtistRolePending(name, venue.slotGenre);
-          onSubmit({ id: `app-${Date.now()}`, venueId: venue.id, artistName: name, pitch: pitch.trim() || `${name} — ${venue.slotGenre} ready` });
+          const built = buildBattleProofPitchValue(proofPlatform, proofInput, battlePitch);
+          onArtistRolePending(name, venue.slotGenre, built.battlePitch, built.social);
+          onSubmit({
+            id: `app-${Date.now()}`,
+            venueId: venue.id,
+            artistName: name,
+            battlePitch: built.battlePitch,
+            social: built.social,
+          });
           setDone(true);
         }}
         style={{ backgroundColor: ROLE.artist.primary, borderRadius: 18, paddingVertical: 18, alignItems: "center" }}
       >
         <Text style={{ color: C.ink, fontWeight: "900" }}>Submit application</Text>
       </TouchableOpacity>
-    </>
+    </ArtistOnboardingKeyboardScroll>
   );
 }
 
@@ -4662,6 +4863,119 @@ function artistRequestStatusColor(status: ArtistRoleRequestStatus) {
   return ROLE.venue.primary;
 }
 
+function ArtistApprovalReviewPanel({
+  request,
+  onApprove,
+  onReject,
+}: {
+  request: ArtistRoleRequest;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  const socialLinks = listSocialLinks(request.social);
+
+  return (
+    <View style={{ backgroundColor: C.card, borderRadius: 18, padding: SPACE.md, marginTop: SPACE.xs, borderWidth: 1, borderColor: ROLE.curator.border }}>
+      <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>REVIEWING</Text>
+      <Text style={{ color: C.text, fontWeight: "900", fontSize: 18, marginTop: 4 }}>{request.stageName}</Text>
+      <Text style={{ color: C.muted, marginTop: 2 }}>
+        @{request.handle} · via {request.source === "profile" ? "Profile apply" : "Battle apply"}
+      </Text>
+
+      {request.note ? (
+        <Text style={{ color: "#cbd5e1", marginTop: SPACE.sm, lineHeight: 22, fontSize: 14 }}>{request.note}</Text>
+      ) : null}
+
+      {request.battlePitch ? (
+        <View style={{ marginTop: SPACE.md }}>
+          <Text style={{ color: C.dim, fontSize: 11, fontWeight: "800", letterSpacing: 0.3, marginBottom: 4 }}>
+            팬들이 응원할 이유
+          </Text>
+          <Text style={{ color: "#cbd5e1", fontSize: 14, lineHeight: 22 }}>{request.battlePitch}</Text>
+        </View>
+      ) : null}
+
+      {socialLinks.length > 0 ? (
+        <View style={{ marginTop: SPACE.md }}>
+          <Text style={{ color: C.dim, fontSize: 11, fontWeight: "800", letterSpacing: 0.3, marginBottom: 8 }}>
+            확인 링크
+          </Text>
+          {socialLinks.map((link: SocialLinkItem, idx: number) => {
+            const isPrimary = idx === 0;
+            const rawValue = request.social ? (request.social as Record<string, string | undefined>)[link.platform] : undefined;
+            return (
+              <TouchableOpacity
+                key={link.platform}
+                onPress={() => openArtistSocialUrl(link.url)}
+                activeOpacity={0.85}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  backgroundColor: isPrimary ? "#1e293b" : C.surface,
+                  borderRadius: 12,
+                  paddingVertical: 10,
+                  paddingHorizontal: 14,
+                  marginBottom: 6,
+                  borderWidth: 1,
+                  borderColor: isPrimary ? "#475569" : C.border,
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Text style={{ color: C.dim, fontWeight: "800", fontSize: 10, width: 28 }}>{link.shortLabel}</Text>
+                  <Text style={{ color: C.muted, fontSize: 13, fontWeight: "600" }}>
+                    {rawValue ?? link.url}
+                  </Text>
+                </View>
+                <Text style={{ color: ROLE.artist.soft, fontWeight: "900", fontSize: 11 }}>열기</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {request.status === "pending" ? (
+        <View style={{ flexDirection: "row", marginTop: SPACE.md }}>
+          <TouchableOpacity
+            onPress={onReject}
+            style={{
+              flex: 1,
+              backgroundColor: C.surface,
+              borderRadius: 14,
+              paddingVertical: 14,
+              alignItems: "center",
+              marginRight: SPACE.xs,
+              borderWidth: 1,
+              borderColor: C.border,
+            }}
+          >
+            <Text style={{ color: C.muted, fontWeight: "900" }}>Deny</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onApprove}
+            style={{
+              flex: 1,
+              backgroundColor: ROLE.artist.bg,
+              borderRadius: 14,
+              paddingVertical: 14,
+              alignItems: "center",
+              marginLeft: SPACE.xs,
+              borderWidth: 1,
+              borderColor: ROLE.artist.border,
+            }}
+          >
+            <Text style={{ color: ROLE.artist.primary, fontWeight: "900" }}>Approve</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <Text style={{ color: artistRequestStatusColor(request.status), fontWeight: "800", marginTop: SPACE.md }}>
+          {request.status === "approved" ? "Artist mode unlocked for this user." : "Application denied."}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 function ArtistApprovalQueue({
   requests,
   onApprove,
@@ -4820,52 +5134,11 @@ function ArtistApprovalQueue({
       )}
 
       {selected ? (
-        <View style={{ backgroundColor: C.card, borderRadius: 18, padding: SPACE.md, marginTop: SPACE.xs, borderWidth: 1, borderColor: ROLE.curator.border }}>
-          <Text style={{ color: C.dim, fontSize: 11, fontWeight: "700" }}>REVIEWING</Text>
-          <Text style={{ color: C.text, fontWeight: "900", fontSize: 18, marginTop: 4 }}>{selected.stageName}</Text>
-          <Text style={{ color: C.muted, marginTop: 2 }}>@{selected.handle} · via {selected.source === "profile" ? "Profile apply" : "Battle apply"}</Text>
-          {selected.note ? (
-            <Text style={{ color: "#cbd5e1", marginTop: SPACE.sm, lineHeight: 22, fontSize: 14 }}>{selected.note}</Text>
-          ) : null}
-          {selected.status === "pending" ? (
-            <View style={{ flexDirection: "row", marginTop: SPACE.md }}>
-              <TouchableOpacity
-                onPress={() => onReject(selected.id)}
-                style={{
-                  flex: 1,
-                  backgroundColor: C.surface,
-                  borderRadius: 14,
-                  paddingVertical: 14,
-                  alignItems: "center",
-                  marginRight: SPACE.xs,
-                  borderWidth: 1,
-                  borderColor: C.border,
-                }}
-              >
-                <Text style={{ color: C.muted, fontWeight: "900" }}>Deny</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => onApprove(selected.id)}
-                style={{
-                  flex: 1,
-                  backgroundColor: ROLE.artist.bg,
-                  borderRadius: 14,
-                  paddingVertical: 14,
-                  alignItems: "center",
-                  marginLeft: SPACE.xs,
-                  borderWidth: 1,
-                  borderColor: ROLE.artist.border,
-                }}
-              >
-                <Text style={{ color: ROLE.artist.primary, fontWeight: "900" }}>Approve</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <Text style={{ color: artistRequestStatusColor(selected.status), fontWeight: "800", marginTop: SPACE.md }}>
-              {selected.status === "approved" ? "Artist mode unlocked for this user." : "Application denied."}
-            </Text>
-          )}
-        </View>
+        <ArtistApprovalReviewPanel
+          request={selected}
+          onApprove={() => onApprove(selected.id)}
+          onReject={() => onReject(selected.id)}
+        />
       ) : null}
     </View>
   );
@@ -5283,7 +5556,11 @@ function VenueAdminScreen({
                       }}
                     >
                       <Text style={{ color: C.text, fontWeight: "800" }}>{app.artistName}</Text>
-                      <Text style={{ color: C.muted, marginTop: 4, lineHeight: 20, fontSize: 13 }}>{app.pitch}</Text>
+                      <Text style={{ color: C.dim, fontSize: 11, fontWeight: "800", marginTop: 8 }}>팬들이 응원할 이유</Text>
+                      <Text style={{ color: C.muted, marginTop: 4, lineHeight: 20, fontSize: 13 }}>{app.battlePitch}</Text>
+                      <Text style={{ color: C.dim, fontSize: 11, fontWeight: "800", marginTop: 8 }}>소셜 증거</Text>
+                      <Text style={{ color: C.dim, fontSize: 12, marginTop: 2 }}>{formatSocialProofSummary(app.social)}</Text>
+                      <BattleArtistSocialProof social={app.social} compact sectionLabel="아티스트 확인하기" />
                       <TouchableOpacity onPress={() => onAcceptBattleApplication(app.id)} style={{ marginTop: SPACE.sm, alignSelf: "flex-start" }}>
                         <Text style={{ color: ROLE.venue.primary, fontWeight: "900" }}>Accept into lineup →</Text>
                       </TouchableOpacity>
@@ -5476,13 +5753,15 @@ function AppContent() {
     stageName: string,
     source: ArtistRoleRequest["source"],
     note?: string,
-    slotGenre?: SlotGenre
+    slotGenre?: SlotGenre,
+    battlePitch?: string,
+    social?: ArtistSocialProof
   ) => {
     if (artistRoleStatus === "approved") return;
     setArtistRoleStatus("pending");
     setArtistStageName(stageName);
     setArtistRoleRequests((prev) =>
-      enqueueArtistRoleRequest(prev, { handle: fanHandle, stageName, source, note, slotGenre })
+      enqueueArtistRoleRequest(prev, { handle: fanHandle, stageName, source, note, slotGenre, battlePitch, social })
     );
   };
 
@@ -5724,8 +6003,8 @@ function AppContent() {
             setReputation((r) => r + 10);
             showToast(`Application submitted for ${app.artistName}.`);
           }}
-          onArtistRolePending={(name, slotGenre) => {
-            queueArtistRoleApplication(name, "battle", `${name} — battle application`, slotGenre);
+          onArtistRolePending={(name, slotGenre, battlePitch, social) => {
+            queueArtistRoleApplication(name, "battle", `${name} — battle application`, slotGenre, battlePitch, social);
           }}
           onViewVenue={openVenueById}
         />
@@ -5809,11 +6088,11 @@ function AppContent() {
           race={race}
           artist={artist}
           venues={venues}
-          backerCount={backerCount(onecoreState, race.id)}
+          backerCount={Math.max(backerCount(onecoreState, race.id), race.currentCount)}
           fanNotes={race.fanNoteSamples ?? []}
           inviteToken={race.artistInviteToken ?? "preview"}
           submitted={artistInviteSubmitted || !!race.artistInvite}
-          onBack={closeOverlay}
+          onBack={() => setOverlay("adminRace")}
           onSubmit={(draft) => {
             const { state: next, error } = submitArtistInvite(
               onecoreState,
@@ -5825,7 +6104,38 @@ function AppContent() {
               showToast(error);
               return;
             }
-            setOnecoreState(next);
+            const nextAfterResponse =
+              draft.response === "interested"
+                ? applyRaceStatusChange(
+                    next,
+                    race.id,
+                    "venue_matching",
+                    `artist:${race.artistId}`,
+                    "아티스트 관심 확인 · 공연장 후보 검토 시작",
+                    { visibleToPublic: true }
+                  )
+                : draft.response === "adjust_terms"
+                  ? applyRaceStatusChange(
+                      next,
+                      race.id,
+                      "confirming_terms",
+                      `artist:${race.artistId}`,
+                      "아티스트 조건 조정 요청 · 조건 확인",
+                      { visibleToPublic: true }
+                    )
+                  : applyRaceStatusChange(
+                      next,
+                      race.id,
+                      "failed",
+                      `artist:${race.artistId}`,
+                      "아티스트 일정 불가 · 환불 또는 대안 검토",
+                      {
+                        visibleToPublic: true,
+                        failureKind: "artist_unavailable",
+                        failureMessage: "아티스트가 이번 일정에는 참여하기 어렵다고 응답했습니다.",
+                      }
+                    );
+            setOnecoreState(nextAfterResponse);
             setArtistInviteSubmitted(true);
             showToast("아티스트 응답이 저장되었습니다.");
           }}
@@ -6068,7 +6378,12 @@ function AppContent() {
 
   const overlayContent = renderOverlayContent();
   const overlayUsesSafeBack = overlay === "venueDetail" || overlay === "artistDetail";
-  const overlayOwnsScroll = overlay === "raceProposal" || overlay === "adminRace";
+  const overlayOwnsScroll =
+    overlay === "raceProposal" ||
+    overlay === "adminRace" ||
+    overlay === "artistInvite" ||
+    overlay === "curatorTools" ||
+    overlay === "applyBattle";
 
   const handleOverlaySafeBack = () => {
     if (overlay === "artistDetail") closeArtistDetail();

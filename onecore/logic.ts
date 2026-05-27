@@ -177,6 +177,8 @@ export function createScoutCampaign(
     estimatedDemand: draft.estimatedDemand,
     venueSuggestions: draft.venueSuggestions,
     rallyCopy: draft.rallyCopy,
+    artistBattlePitch: draft.artistBattlePitch,
+    artistSocial: draft.artistSocial,
     scoutConfidence: draft.scoutConfidence,
     handoffState: draft.handoffState ?? "draft",
     raceId: draft.raceId,

@@ -1,6 +1,14 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, TextInput, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BattleArtistSocialProof } from "../components/BattleArtistSocialProof";
+import {
+  BattleProofPitchFields,
+  buildBattleProofPitchValue,
+  validateBattleProofPitch,
+} from "../components/BattleProofPitchFields";
+import type { SocialPlatform } from "../lib/artistSocial";
+import { formatSocialProofSummary } from "../lib/artistSocial";
 import type { DemandScoutCampaign, OnecoreState, ScoutCampaignDraft, ScoutConfidence } from "./types";
 import { OC, OC_SPACE as S } from "./tokens";
 
@@ -66,24 +74,39 @@ export function DemandScoutScreen({ state, scoutId, onBack, onCreateCampaign, on
   const [estimatedDemand, setEstimatedDemand] = useState("");
   const [venueSuggestions, setVenueSuggestions] = useState("");
   const [rallyCopy, setRallyCopy] = useState("");
+  const [proofPlatform, setProofPlatform] = useState<SocialPlatform>("instagram");
+  const [proofInput, setProofInput] = useState("");
+  const [battlePitch, setBattlePitch] = useState("");
+  const [scoutFormError, setScoutFormError] = useState<string | null>(null);
   const [confidence, setConfidence] = useState<ScoutConfidence>("medium");
 
   const campaigns = state.scoutCampaigns.filter((c) => c.scoutId === scoutId);
 
   const saveCampaign = () => {
     if (!artistId || !whyNow.trim()) return;
+    const validation = validateBattleProofPitch(proofPlatform, proofInput, battlePitch);
+    if (!validation.ok) {
+      setScoutFormError(validation.message ?? "입력을 확인해 주세요.");
+      return;
+    }
+    setScoutFormError(null);
+    const proofPitch = buildBattleProofPitchValue(proofPlatform, proofInput, battlePitch);
     onCreateCampaign({
       artistId,
       targetCity,
       whyNow,
       estimatedDemand,
       venueSuggestions,
-      rallyCopy,
+      rallyCopy: rallyCopy.trim() || proofPitch.battlePitch,
+      artistBattlePitch: proofPitch.battlePitch,
+      artistSocial: proofPitch.social,
       scoutConfidence: confidence,
       handoffState: "draft",
     });
     setWhyNow("");
     setRallyCopy("");
+    setProofInput("");
+    setBattlePitch("");
   };
 
   return (
@@ -184,7 +207,18 @@ export function DemandScoutScreen({ state, scoutId, onBack, onCreateCampaign, on
             multiline
             hint="팬·스카우트 제안일 뿐, 최종 확정은 운영"
           />
-          <Field label="팬 rally 카피 초안" value={rallyCopy} onChange={setRallyCopy} multiline />
+          <BattleProofPitchFields
+            proofPlatform={proofPlatform}
+            proofInput={proofInput}
+            battlePitch={battlePitch}
+            onProofPlatformChange={setProofPlatform}
+            onProofInputChange={setProofInput}
+            onBattlePitchChange={setBattlePitch}
+          />
+          {scoutFormError ? (
+            <Text style={{ color: "#f87171", marginBottom: S.sm, fontWeight: "700", fontSize: 13 }}>{scoutFormError}</Text>
+          ) : null}
+          <Field label="팬 rally 카피 초안 (선택)" value={rallyCopy} onChange={setRallyCopy} multiline hint="비우면 응원 이유를 rally 카피로 사용" />
           <Text style={{ color: OC.dim, fontSize: 12, marginBottom: S.xs }}>스카우트 확신</Text>
           <View style={{ flexDirection: "row", gap: S.xs, marginBottom: S.md }}>
             {CONFIDENCE.map((c) => (
@@ -251,6 +285,23 @@ function CampaignRow({
       <Text style={{ color: OC.muted, fontSize: 13, marginTop: 4 }} numberOfLines={2}>
         {campaign.whyNow}
       </Text>
+      {campaign.artistBattlePitch ? (
+        <>
+          <Text style={{ color: OC.dim, fontSize: 11, fontWeight: "800", marginTop: 8 }}>팬들이 응원할 이유</Text>
+          <Text style={{ color: OC.muted, fontSize: 12, marginTop: 2 }} numberOfLines={2}>
+            {campaign.artistBattlePitch}
+          </Text>
+        </>
+      ) : null}
+      {campaign.artistSocial ? (
+        <>
+          <Text style={{ color: OC.dim, fontSize: 11, fontWeight: "800", marginTop: 6 }}>소셜 증거</Text>
+          <Text style={{ color: OC.dim, fontSize: 11, marginTop: 2 }}>{formatSocialProofSummary(campaign.artistSocial)}</Text>
+          <BattleArtistSocialProof social={campaign.artistSocial} compact sectionLabel="아티스트 확인하기" />
+        </>
+      ) : artist?.social ? (
+        <BattleArtistSocialProof social={artist.social} compact sectionLabel="아티스트 확인하기" />
+      ) : null}
       {campaign.handoffState !== "handed_off" ? (
         <TouchableOpacity
           onPress={() => onHandoff(campaign.id)}

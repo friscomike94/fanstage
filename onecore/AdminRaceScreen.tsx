@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Switch } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { formatSocialProofSummary } from "../lib/artistSocial";
 import type { OnecoreState, Race, RaceDraft, RaceEventLog, RaceOperations, RaceStatus } from "./types";
 import { adminPhaseLabel, raceStatusLabel } from "./copy";
 import { allStatuses } from "./logic";
@@ -462,6 +463,11 @@ export function AdminRaceScreen({
             <Text style={{ color: OC.muted, fontSize: 13 }}>
               {artist?.name} · {race.targetCity} · {race.currentCount}/{race.targetCount}
             </Text>
+            {artist?.social ? (
+              <Text style={{ color: OC.dim, fontSize: 11, marginTop: 6, lineHeight: 16 }}>
+                소셜 증거 · {formatSocialProofSummary(artist.social)}
+              </Text>
+            ) : null}
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: S.xs, marginTop: S.sm }}>
               <TouchableOpacity
                 onPress={() => {

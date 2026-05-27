@@ -1,5 +1,7 @@
 /** ONECORE MVP domain models */
 
+import type { ArtistSocialProof } from "../lib/artistSocial";
+
 export type RaceStatus =
   | "draft"
   | "active"
@@ -56,6 +58,10 @@ export type Artist = {
   genre: string;
   bio: string;
   tagline: string;
+  /** Fan-facing short pitch for battles / rallies */
+  battlePitch?: string;
+  /** Proof links fans use to verify the artist */
+  social?: ArtistSocialProof;
 };
 
 export type VenueCandidate = {
@@ -137,6 +143,8 @@ export type DemandScoutCampaign = {
   estimatedDemand: string;
   venueSuggestions: string;
   rallyCopy: string;
+  artistBattlePitch?: string;
+  artistSocial?: ArtistSocialProof;
   scoutConfidence: ScoutConfidence;
   handoffState: ScoutHandoffState;
   raceId?: string;
