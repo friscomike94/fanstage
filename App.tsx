@@ -3174,11 +3174,11 @@ function BattleVenueHero({ venue, total }: { venue: VenueCompetition; total: num
           borderColor: C.border,
         }}
       >
-        <Text style={{ color: C.muted, fontSize: 12, fontWeight: "700" }}>
+        <Text style={{ color: "#c8d1e0", fontSize: 15, lineHeight: 22, fontWeight: "700" }}>
           {formatBattleHeroStatus(venue, total)} · {venue.venueName} · 정원 {venue.capacity}
         </Text>
         {leading ? (
-          <Text style={{ color: C.dim, marginTop: 4, fontSize: 12, fontWeight: "600" }}>
+          <Text style={{ color: "#b6c0d0", marginTop: 4, fontSize: 15, lineHeight: 22, fontWeight: "600" }}>
             선두 {leading.name} · {leading.supporters}코어
           </Text>
         ) : null}
@@ -3219,12 +3219,12 @@ function CoreRaceCard({
   return (
     <ShowCard borderColor={g.primary + "44"}>
       <Text style={{ color: g.primary, fontWeight: "900", fontSize: 11, letterSpacing: 1.2 }}>CORE RACE</Text>
-      <Text style={{ color: C.text, marginTop: SPACE.xs, fontSize: 16, fontWeight: "800" }}>{leader.name}</Text>
-      <Text style={{ color: C.text, fontWeight: "900", fontSize: 28, marginTop: 2, letterSpacing: -0.6 }}>
+      <Text style={{ color: C.text, marginTop: SPACE.xs, fontSize: 15, fontWeight: "800" }}>{leader.name}</Text>
+      <Text style={{ color: C.text, fontWeight: "900", fontSize: 24, marginTop: 2, letterSpacing: -0.4 }}>
         {cores} / {goal}코어
       </Text>
       {toGo > 0 ? (
-        <Text style={{ color: C.muted, marginTop: 2, fontSize: 13, fontWeight: "700" }}>
+        <Text style={{ color: C.muted, marginTop: 2, fontSize: 13, lineHeight: 18, fontWeight: "700" }}>
           {toGo}코어 남음
         </Text>
       ) : null}
@@ -3257,10 +3257,11 @@ function BattleArtistPitchBlock({ artist, compact }: { artist: CompetingArtist; 
 
 function BattleLineupSectionHeader({ teamCount }: { teamCount: number }) {
   return (
-    <View style={{ marginBottom: SPACE.sm }}>
+    <View style={{ marginBottom: SPACE.xs }}>
       <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 11, letterSpacing: 1.1 }}>LINEUP</Text>
-      <Text style={{ color: C.text, fontWeight: "900", fontSize: 19, lineHeight: 24, marginTop: 2 }}>누가 이 밤의 주인공이 될까요?</Text>
-      <Text style={{ color: C.gold, marginTop: 4, fontSize: 12, fontWeight: "800" }}>{teamCount}팀이 이 밤을 두고 달리고 있어요</Text>
+      <Text style={{ color: C.gold, marginTop: 4, fontSize: 13, lineHeight: 20, fontWeight: "800" }}>
+        {teamCount}팀이 이 밤을 두고 달리고 있어요
+      </Text>
     </View>
   );
 }
@@ -3297,8 +3298,8 @@ function BattleLeaderRaceCard({
     >
       <Text style={{ color: C.gold, fontWeight: "900", fontSize: 11, letterSpacing: 0.5 }}>1위 · 선두 팀</Text>
       <TouchableOpacity onPress={onOpenArtist} activeOpacity={0.85}>
-        <Text style={{ color: C.text, fontWeight: "900", fontSize: 26, marginTop: 4, letterSpacing: -0.4 }}>{artist.name}</Text>
-        <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 22, marginTop: 2 }}>{cores}코어</Text>
+        <Text style={{ color: C.text, fontWeight: "900", fontSize: 23, marginTop: 4, letterSpacing: -0.3 }}>{artist.name}</Text>
+        <Text style={{ color: ROLE.fan.primary, fontWeight: "900", fontSize: 19, marginTop: 2 }}>{cores}코어</Text>
         <Text style={{ color: C.muted, marginTop: 2, fontSize: 14, fontWeight: "700" }}>
           {toGo > 0 ? `단독 공연까지 ${toGo}코어` : "단독 공연 조건 달성"}
         </Text>
