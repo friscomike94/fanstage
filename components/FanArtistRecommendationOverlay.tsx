@@ -150,7 +150,7 @@ export function FanArtistRecommendationOverlay({ onBack, onSubmit }: Props) {
               팬 추천이 모이면 ONECORE 후보로 검토합니다.
             </Text>
             <Text style={{ color: C.dim, textAlign: "center", marginTop: 12, lineHeight: 18, fontSize: 12 }}>
-              100코어가 모이면 공연 준비가 시작돼요. 아티스트·공연장은 그 다음 단계입니다.
+              100코어가 모이면 공연 가능성 검토가 시작돼요. 공연 확정은 아티스트·공연장·일정이 맞아야 가능합니다.
             </Text>
           </View>
           <TouchableOpacity onPress={onBack} style={{ marginTop: 20, paddingVertical: 14, alignItems: "center" }}>
@@ -273,7 +273,7 @@ export function FanArtistRecommendationOverlay({ onBack, onSubmit }: Props) {
 
         <Text style={{ color: C.dim, fontSize: 11, lineHeight: 17, marginTop: 14 }}>
           이 양식은 아티스트 가입이 아닙니다. fanstage가 검토한 뒤 ONECORE 캠페인을 만들 수 있으며, 100코어로 수요가
-          증명되면 공연 준비가 시작됩니다.
+          증명되면 공연 가능성 검토가 시작됩니다.
         </Text>
 
         {formError ? (

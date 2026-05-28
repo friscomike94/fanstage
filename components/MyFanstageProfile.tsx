@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import type { FanArtistRecommendation } from "../onecore/fanRecommendations";
-import { platformLabelKo } from "../onecore/fanRecommendations";
+import { fanRecommendationStatusLabel, platformLabelKo } from "../onecore/fanRecommendations";
 import { fanPhaseLabel } from "../onecore/copy";
 import type { OnecoreFanPhase } from "../onecore/types";
 import type { Artist, Race } from "../onecore/types";
@@ -221,7 +221,9 @@ export function MyFanstageProfile({
           </TouchableOpacity>
         ))}
 
-        {recommendations.map((rec) => (
+        {recommendations.map((rec) => {
+          const approved = rec.status === "approved";
+          return (
           <View
             key={rec.id}
             style={{
@@ -240,12 +242,14 @@ export function MyFanstageProfile({
                   paddingHorizontal: 8,
                   paddingVertical: 3,
                   borderRadius: 6,
-                  backgroundColor: "#422006",
+                  backgroundColor: approved ? C.fanBg : "#422006",
                   borderWidth: 1,
-                  borderColor: C.gold + "55",
+                  borderColor: approved ? C.fanBorder : C.gold + "55",
                 }}
               >
-                <Text style={{ color: C.gold, fontWeight: "800", fontSize: 10 }}>추천 검토 중</Text>
+                <Text style={{ color: approved ? C.accentSoft : C.gold, fontWeight: "800", fontSize: 10 }}>
+                  {fanRecommendationStatusLabel(rec.status)}
+                </Text>
               </View>
             </View>
             <Text style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>{platformLabelKo(rec.proofPlatform)} · 팬 추천</Text>
@@ -253,7 +257,8 @@ export function MyFanstageProfile({
               {rec.fanReason}
             </Text>
           </View>
-        ))}
+        );
+        })}
 
         <TouchableOpacity
           onPress={onOpenFanRecommend}
@@ -318,8 +323,8 @@ export function MyFanstageProfile({
           }}
         >
           <View>
-            <Text style={{ color: C.dim, fontWeight: "800", fontSize: 11 }}>아티스트/큐레이터 도구</Text>
-            <Text style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>{artistStatusKo}</Text>
+            <Text style={{ color: C.dim, fontWeight: "800", fontSize: 11 }}>운영 도구</Text>
+            <Text style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>ONECORE 공연 운영</Text>
           </View>
           <Text style={{ color: C.dim, fontWeight: "900" }}>{toolsOpen ? "▲" : "▼"}</Text>
         </TouchableOpacity>
@@ -335,9 +340,7 @@ export function MyFanstageProfile({
             ) : null}
             {isCurator ? (
               <>
-                <QuietRow title="ONECORE Admin · Race & logs" onPress={onOpenOnecoreAdmin} />
-                <QuietRow title="Venue Admin · 라인업" onPress={onOpenVenueAdmin} />
-                <QuietRow title="Demand scout · 수요 캠페인" onPress={onOpenCuratorTools} last />
+                <QuietRow title="공연 만들기 대시보드" subtitle="팬 추천 승인 · 캠페인 운영" onPress={onOpenOnecoreAdmin} last />
               </>
             ) : null}
           </View>

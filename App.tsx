@@ -35,6 +35,7 @@ import {
   artistById,
   backerCount,
   commitCore,
+  createEventLog,
   createRaceFromDraft,
   createScoutCampaign,
   getPublicFoundingFans,
@@ -47,7 +48,7 @@ import {
   updateRaceOperations,
   resolveOnecoreFanPhase,
 } from "./onecore/logic";
-import { seedOnecoreState } from "./onecore/seed";
+import { DEFAULT_REFUND_POLICY_ID, seedOnecoreState } from "./onecore/seed";
 import type { Artist, OnecoreState, Race, RaceDraft, RaceStatus, VenueCandidate } from "./onecore/types";
 import { BattleArtistSocialProof, openArtistSocialUrl } from "./components/BattleArtistSocialProof";
 import {
@@ -63,6 +64,40 @@ import {
   type SocialLinkItem,
   type SocialPlatform,
 } from "./lib/artistSocial";
+import type {
+  ApprovedArtist,
+  ArtistApplication,
+  ArtistApprovalFilter,
+  ArtistApprovalStatus,
+  ArtistDetailReturn,
+  ArtistRoleRequest,
+  ArtistRoleRequestStatus,
+  BackingStep,
+  CompetingArtist,
+  DemandSurfaceCopy,
+  DistrictFilter,
+  FanInvite,
+  GenreFilter,
+  Overlay,
+  PendingPick,
+  RefundedPick,
+  ShowPageStage,
+  SlotGenre,
+  StatusFilter,
+  StatusTone,
+  Tab,
+  Ticket,
+  TicketWalletFilter,
+  VenueCompetition,
+  VenueDemandPhase,
+  VenueMomentum,
+  VenuePublishDraft,
+} from "./src/types";
+import { INITIAL_VENUES, SEED_APPROVED_ARTISTS, SEED_ARTIST_ROLE_REQUESTS } from "./src/data/mockData";
+import { CampaignCard } from "./src/components/CampaignCard";
+import { StatusBadge } from "./src/components/StatusBadge";
+import { ScreenHeader } from "./src/components/ScreenHeader";
+import { ProgressBar } from "./src/components/ProgressBar";
 
 const HERO_BG_VIDEO = require("./assets/hero-bg.mp4");
 
@@ -87,10 +122,10 @@ const BACKING_PRICE = "3만원";
 const FANSTAGE_TAGLINE = "팬스테이지는 팬이 무대를 현실로 만드는 곳입니다.";
 const FANSTAGE_HERO_MAIN = "팬이 모이면, 무대가 열린다";
 const FANSTAGE_HERO_SUB =
-  "공연이 잡히기 전에 팬들이 먼저 수요를 증명합니다. 100코어가 모이면 공연 준비가 시작돼요.";
-const ONECORE_TAGLINE_SHORT = "100코어가 모이면 공연 준비가 시작돼요.";
+  "공연이 잡히기 전에 팬들이 먼저 수요를 증명합니다. 100코어가 모이면 공연 가능성 검토가 시작돼요.";
+const ONECORE_TAGLINE_SHORT = "100코어가 모이면 공연 가능성 검토가 시작돼요.";
 const ONECORE_CAMPAIGN_HEADLINE = "100코어로 공연을 열자";
-const ONECORE_RULE_SUMMARY = "최소 수요 100코어 · 실패 시 전액 환불";
+const ONECORE_RULE_SUMMARY = "최소 수요 100코어 · 수요 검토 → 공연 추진";
 const ONECORE_THRESHOLD_EXPLAIN =
   "100코어는 공연을 열기 위한 최소 수요입니다. 아티스트와 공연장은 수요 증명 후 연결됩니다.";
 const ONECORE_SOLO_CORE_GOAL = 100;
@@ -122,8 +157,8 @@ function getVenueDiscoverBadge(venue: VenueCompetition) {
 
 function venueOnecoreProgressLine(venue: VenueCompetition) {
   const { leader, toGo } = getVenueOnecoreLeaderStats(venue);
-  if (toGo > 0) return `${toGo}명만 더 모이면 ${leader.name} 단독 공연이 열립니다`;
-  return `${leader.name} 단독 공연 확정 조건 달성`;
+  if (toGo > 0) return `${toGo}명만 더 모이면 ${leader.name} 수요 검토가 시작됩니다`;
+  return `${leader.name} 수요 검토 기준 달성`;
 }
 
 function buildTicketWalletEntries(
@@ -172,8 +207,6 @@ const ROLE = {
   curator: { primary: "#3b82f6", soft: "#93c5fd", bg: "#1e3a5f", border: "#3b82f666", label: "Curator" },
 };
 
-type ArtistApprovalStatus = "not_applied" | "pending" | "approved";
-
 function artistStatusLabel(status: ArtistApprovalStatus) {
   if (status === "approved") return "Approved";
   if (status === "pending") return "Pending review";
@@ -185,59 +218,6 @@ function artistStatusColor(status: ArtistApprovalStatus) {
   if (status === "pending") return ROLE.venue.primary;
   return C.dim;
 }
-
-type Tab = "discover" | "tickets" | "profile";
-type Overlay =
-  | null
-  | "venueDetail"
-  | "artistDetail"
-  | "backingFlow"
-  | "backingConfirmation"
-  | "ticketQr"
-  | "curatorTools"
-  | "venueAdmin"
-  | "inviteArtist"
-  | "applyBattle"
-  | "raceProposal"
-  | "adminRace"
-  | "artistInvite"
-  | "fanRecommend";
-type BackingStep = "review" | "confirmed";
-type VenueMomentum = "Heating up" | "Almost unlocked" | "Slot won";
-type DistrictFilter = "전체" | "홍대" | "마포" | "이태원" | "성수";
-type SlotGenre = "Indie" | "Electronic" | "Hip-hop" | "Jazz";
-type GenreFilter = "All" | SlotGenre;
-type StatusFilter = "All" | VenueMomentum;
-
-type CompetingArtist = {
-  id: string;
-  name: string;
-  genre: string;
-  supporters: number;
-  tagline: string;
-  battlePitch: string;
-  social: ArtistSocialProof;
-  story: string;
-  latestTrack: { title: string; duration: string };
-};
-
-type VenueCompetition = {
-  id: string;
-  venueName: string;
-  district: string;
-  address: string;
-  capacity: number;
-  slotLabel: string;
-  slotDate: string;
-  bookingCloseDate: string;
-  bookingCloseTime: string;
-  countdown: { days: number; hours: number; minutes: number };
-  minGoal: number;
-  slotGenre: SlotGenre;
-  slotsOpen: number;
-  artists: CompetingArtist[];
-  winnerId?: string;
-};
 
 const DISTRICT_CHIPS: DistrictFilter[] = ["홍대", "마포", "이태원", "성수"];
 
@@ -580,8 +560,6 @@ function VenueScheduleTwinBlocks({
   );
 }
 
-type VenueDemandPhase = "pre_min" | "confirmed" | "near_capacity" | "sold_out" | "winner";
-
 function getVenueDemandPhase(venue: VenueCompetition, total: number): VenueDemandPhase {
   if (venue.winnerId) return "winner";
   if (total >= venue.capacity) return "sold_out";
@@ -644,123 +622,6 @@ function venueDemandInfo(
   };
 }
 
-function VenueCapacityBar({
-  total,
-  minGoal,
-  capacity,
-  fillColor,
-  animateOnMount = false,
-}: {
-  total: number;
-  minGoal: number;
-  capacity: number;
-  fillColor: string;
-  animateOnMount?: boolean;
-}) {
-  const fillRatio = Math.min(1, total / capacity);
-  const fillPct = fillRatio * 100;
-  const minMarkerPct = Math.min(98, (minGoal / capacity) * 100);
-  const fillWidth = useRef(new Animated.Value(0)).current;
-  const markerOpacity = useRef(new Animated.Value(0.7)).current;
-  const didAnimateFill = useRef(false);
-  const pulseRef = useRef<Animated.CompositeAnimation | null>(null);
-
-  const startMarkerPulse = useCallback(() => {
-    if (!animateOnMount) {
-      markerOpacity.setValue(1);
-      return;
-    }
-    pulseRef.current?.stop();
-    markerOpacity.setValue(0.7);
-    pulseRef.current = Animated.loop(
-      Animated.sequence([
-        Animated.timing(markerOpacity, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(markerOpacity, { toValue: 0.7, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    );
-    pulseRef.current.start();
-  }, [animateOnMount, markerOpacity]);
-
-  const onTrackLayout = useCallback(
-    (width: number) => {
-      if (width < 1) return;
-      const target = width * fillRatio;
-
-      if (!animateOnMount) {
-        fillWidth.setValue(target);
-        return;
-      }
-
-      if (didAnimateFill.current) return;
-      didAnimateFill.current = true;
-      fillWidth.setValue(0);
-      startMarkerPulse();
-      Animated.timing(fillWidth, {
-        toValue: target,
-        duration: 600,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }).start();
-    },
-    [animateOnMount, fillRatio, fillWidth, startMarkerPulse]
-  );
-
-  useEffect(() => {
-    return () => pulseRef.current?.stop();
-  }, []);
-
-  return (
-    <View style={{ marginTop: SPACE.sm }}>
-      <View
-        style={{ height: 8, position: "relative", width: "100%" }}
-        onLayout={(e) => onTrackLayout(e.nativeEvent.layout.width)}
-        collapsable={false}
-      >
-        <View style={{ height: 8, backgroundColor: "#1e293b", borderRadius: 999, overflow: "hidden" }}>
-          {animateOnMount ? (
-            <Animated.View
-              style={{
-                width: fillWidth,
-                height: "100%",
-                backgroundColor: fillColor,
-                borderRadius: 999,
-                opacity: 0.9,
-              }}
-            />
-          ) : (
-            <View
-              style={{
-                width: `${fillPct}%`,
-                height: "100%",
-                backgroundColor: fillColor,
-                borderRadius: 999,
-                opacity: 0.9,
-              }}
-            />
-          )}
-        </View>
-        <Animated.View
-          style={{
-            position: "absolute",
-            left: `${minMarkerPct}%`,
-            top: -4,
-            width: 2,
-            height: 16,
-            backgroundColor: C.gold,
-            borderRadius: 1,
-            marginLeft: -1,
-            opacity: animateOnMount ? markerOpacity : 1,
-          }}
-        />
-      </View>
-      <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
-        <Text style={{ color: C.dim, fontSize: 10, fontWeight: "600" }}>최소 {minGoal}</Text>
-        <Text style={{ color: C.dim, fontSize: 10, fontWeight: "600" }}>정원 {capacity}</Text>
-      </View>
-    </View>
-  );
-}
-
 function genreFilterKo(chip: GenreFilter) {
   return chip === "All" ? "전체" : genreKo(chip);
 }
@@ -770,314 +631,6 @@ function statusFilterKo(chip: StatusFilter) {
 }
 const GENRE_CHIPS: GenreFilter[] = ["All", "Indie", "Electronic", "Hip-hop", "Jazz"];
 const SLOT_GENRES: SlotGenre[] = ["Indie", "Electronic", "Hip-hop", "Jazz"];
-
-const INITIAL_VENUES: VenueCompetition[] = [
-  {
-    id: "rolling",
-    venueName: "롤링홀",
-    district: "마포",
-    address: "서울 마포구 와우산로 19",
-    capacity: 450,
-    slotLabel: "헤드라인 · 19:30",
-    slotDate: "6월 14일 (금)",
-    bookingCloseDate: "6월 12일 (수)",
-    bookingCloseTime: "23:59",
-    countdown: { days: 3, hours: 0, minutes: 0 },
-    minGoal: 150,
-    slotGenre: "Indie",
-    slotsOpen: 0,
-    winnerId: "minu",
-    artists: [
-      {
-        id: "minu",
-        name: "미누",
-        genre: "인디 록",
-        supporters: 94,
-        tagline: "마포 감성, 다같이 부르는 후렴",
-        story:
-          "새벽의 식당, 마지막 지하철, 오래 미룬 고백을 노래하는 인디 록 아티스트. 이 공연은 예정된 게 아니라, 서울 팬 94명이 먼저 만들어냈습니다.",
-        latestTrack: { title: "위성 기도", duration: "4:08" },
-      },
-      {
-        id: "luna",
-        name: "루나 아카이브",
-        genre: "드림팝",
-        supporters: 78,
-        tagline: "테이프 딜레이, 지하실 찬가",
-        story: "작은 공간을 멈춘 순간으로 바꾸는 루나 아카이브. 롤링홀 메인에 딱 맞는 팀.",
-        latestTrack: { title: "유리 과수원", duration: "3:42" },
-      },
-      {
-        id: "river",
-        name: "리버라이트",
-        genre: "인디 포크",
-        supporters: 41,
-        tagline: "어쿠스틱, 관객 숨 고르기",
-        story: "팬스테이지 팝업 두 번 매진. 마포가 원하는 조용함과 울림을 동시에 노린다.",
-        latestTrack: { title: "조수실", duration: "3:55" },
-      },
-    ],
-  },
-  {
-    id: "modeci",
-    venueName: "모데시",
-    district: "이태원",
-    address: "서울 용산구 이태원로 54",
-    capacity: 280,
-    slotLabel: "토요일 레이트 · 23:00",
-    slotDate: "6월 21일 (토)",
-    bookingCloseDate: "6월 20일 (금)",
-    bookingCloseTime: "23:59",
-    countdown: { days: 0, hours: 9, minutes: 18 },
-    minGoal: 120,
-    slotGenre: "Electronic",
-    slotsOpen: 1,
-    artists: [
-      {
-        id: "neon",
-        name: "네온룸",
-        genre: "일렉트로닉",
-        supporters: 68,
-        tagline: "웨어하우스 베이스, 팝 훅",
-        story: "이태원 에너지와 헤드라인급 사운드를 섞는 네온룸. 모데시가 목표 무대다.",
-        latestTrack: { title: "미드나잇 릴레이", duration: "5:11" },
-      },
-      {
-        id: "yuna",
-        name: "유나 플럭스",
-        genre: "하우스 · K-일렉",
-        supporters: 61,
-        tagline: "피크타임 압박, 군더더기 없음",
-        story: "서울 레지던시에서 뜨거운 유나 플럭스. 이번 슬롯이 커리어 분기점이 될 수 있다.",
-        latestTrack: { title: "플럭스 상태", duration: "4:44" },
-      },
-    ],
-  },
-  {
-    id: "velvet",
-    venueName: "벨벳홀",
-    district: "성수",
-    address: "서울 성동구 성수이로 12",
-    capacity: 320,
-    slotLabel: "목요일 랩 쇼케이스 · 21:00",
-    slotDate: "6월 12일 (목)",
-    bookingCloseDate: "6월 10일 (화)",
-    bookingCloseTime: "23:59",
-    countdown: { days: 0, hours: 0, minutes: 0 },
-    minGoal: 100,
-    slotGenre: "Hip-hop",
-    slotsOpen: 0,
-    winnerId: "kontra",
-    artists: [
-      {
-        id: "kontra",
-        name: "콘트라",
-        genre: "K-랩",
-        supporters: 112,
-        tagline: "성수 랩, 라이브 밴드 파워",
-        story: "막판 서포트로 벨벳홀 슬롯을 가져간 콘트라. 112명의 서포트가 예매를 확정했다.",
-        latestTrack: { title: "백스테이지 패스", duration: "2:56" },
-      },
-      {
-        id: "sable",
-        name: "세이블 크루",
-        genre: "힙합",
-        supporters: 89,
-        tagline: "사이퍼 에너지, 모스피트 훅",
-        story: "세이블 크루가 콘트라를 끝까지 밀었다. 마지막 48시간이 아직도 회자된다.",
-        latestTrack: { title: "크루 콜", duration: "3:12" },
-      },
-    ],
-  },
-  {
-    id: "clubff",
-    venueName: "홍대 클럽 FF",
-    district: "홍대",
-    address: "서울 마포구 어울마당로 33",
-    capacity: 180,
-    slotLabel: "수요일 신인 나이트 · 19:30",
-    slotDate: "6월 18일 (수)",
-    bookingCloseDate: "6월 16일 (월)",
-    bookingCloseTime: "23:59",
-    countdown: { days: 0, hours: 0, minutes: 6 },
-    minGoal: 80,
-    slotGenre: "Jazz",
-    slotsOpen: 3,
-    artists: [
-      {
-        id: "oki",
-        name: "김오키",
-        genre: "모던 재즈",
-        supporters: 34,
-        tagline: "즉흥 리드, 공간 장악",
-        story: "김오키는 클럽 FF가 원하는 심야 재즈의 중심이다.",
-        latestTrack: { title: "리버라이트 스위트", duration: "6:20" },
-      },
-      {
-        id: "moon",
-        name: "문미향",
-        genre: "재즈 보컬",
-        supporters: 28,
-        tagline: "심야 연기, 브라스 열기",
-        story: "문미향의 보컬이 FF의 재즈 나이트를 완성한다.",
-        latestTrack: { title: "연기 신호", duration: "5:02" },
-      },
-      {
-        id: "trioA",
-        name: "트리오 A",
-        genre: "퓨전 재즈",
-        supporters: 12,
-        tagline: "리듬 섹션, 날카로운 브레이크",
-        story: "트리오 A는 FF 신인 나이트에서 가장 빠르게 올라온 팀이다.",
-        latestTrack: { title: "블루 코리더", duration: "4:18" },
-      },
-      {
-        id: "bandB",
-        name: "밴드 B",
-        genre: "시티팝 재즈",
-        supporters: 8,
-        tagline: "도시 밤, 부드러운 그루브",
-        story: "밴드 B는 홍대 재즈 팬층의 숨은 후보다.",
-        latestTrack: { title: "네온 블루", duration: "3:54" },
-      },
-    ],
-  },
-].map((venue) => ({
-  ...venue,
-  slotGenre: venue.slotGenre as SlotGenre,
-  artists: venue.artists.map((a) => enrichCompetingArtist(a)),
-})) as VenueCompetition[];
-
-type PendingPick = {
-  id: string;
-  venueId: string;
-  artistId: string;
-  artist: string;
-  venue: string;
-  countdown: string;
-  rank: string;
-  momentum: VenueMomentum;
-  supporterGap: number;
-};
-
-type RefundedPick = {
-  id: string;
-  venueId: string;
-  artistId: string;
-  artist: string;
-  venue: string;
-  winnerName: string;
-  refundedAmount: string;
-};
-
-type TicketWalletFilter = "all" | "converting" | "ticket" | "past" | "refund";
-
-type ArtistDetailReturn = null | "venueDetail" | "tickets" | "discover";
-
-type Ticket = {
-  id: string;
-  artist: string;
-  artistId?: string;
-  venue: string;
-  venueId?: string;
-  date: string;
-  seat: string;
-  code: string;
-};
-
-type FanInvite = { id: string; venueId: string; profileId: string; genre: SlotGenre; note: string };
-type ArtistApplication = {
-  id: string;
-  venueId: string;
-  artistName: string;
-  battlePitch: string;
-  social: ArtistSocialProof;
-};
-
-type ArtistRoleRequestStatus = "pending" | "approved" | "rejected";
-
-type ArtistRoleRequest = {
-  id: string;
-  handle: string;
-  stageName: string;
-  status: ArtistRoleRequestStatus;
-  submittedLabel: string;
-  source: "profile" | "battle";
-  slotGenre: SlotGenre;
-  note?: string;
-  battlePitch?: string;
-  social?: ArtistSocialProof;
-};
-
-type ApprovedArtist = {
-  id: string;
-  handle: string;
-  stageName: string;
-  slotGenre: SlotGenre;
-  genre: string;
-  tagline: string;
-  story: string;
-};
-
-const SEED_ARTIST_ROLE_REQUESTS: ArtistRoleRequest[] = [
-  {
-    id: "req-yuna",
-    handle: "yuna_mix",
-    stageName: "DJ Yuna Flux",
-    status: "pending",
-    submittedLabel: "18m ago",
-    source: "battle",
-    slotGenre: "Electronic",
-    note: "House · K-electronic · Modeci slot ready",
-    battlePitch: "K-일렉 하우스. 모데시에서 커리어 분기점이 될 수 있는 세트. 팬들이 먼저 만들어내는 밤.",
-    social: { primaryPlatform: "tiktok", tiktok: "yuna_flux", spotify: "yunaflux", instagram: "yuna_mix" },
-  },
-  {
-    id: "req-han",
-    handle: "han_archive",
-    stageName: "Han River Jazz Collective",
-    status: "pending",
-    submittedLabel: "1h ago",
-    source: "profile",
-    slotGenre: "Jazz",
-    note: "Modern jazz · Club FF applications",
-    battlePitch: "한강의 재즈. 현대적인 편성과 실험적인 즉흥 연주로 클럽 FF의 밤을 채웁니다.",
-    social: { primaryPlatform: "youtube", youtube: "hanriverjazz", soundcloud: "han-archive-seoul", instagram: "han_archive" },
-  },
-  {
-    id: "req-kontra",
-    handle: "kontra_seoul",
-    stageName: "KONTRA",
-    status: "approved",
-    submittedLabel: "3d ago",
-    source: "battle",
-    slotGenre: "Hip-hop",
-    note: "K-rap · Velvet Hall winner path",
-    battlePitch: "성수 랩과 라이브 밴드 파워. 112명의 서포트가 만든 벨벳홀 승리.",
-    social: { primaryPlatform: "youtube", youtube: "kontraseoul", instagram: "kontra_seoul" },
-  },
-];
-
-const SEED_APPROVED_ARTISTS: ApprovedArtist[] = [
-  {
-    id: "roster-kontra",
-    handle: "kontra_seoul",
-    stageName: "KONTRA",
-    slotGenre: "Hip-hop",
-    genre: "K-rap",
-    tagline: "Seongsu rap, live-band power",
-    story: "KONTRA is verified and cleared for hip-hop venue battles across Seoul.",
-  },
-  {
-    id: "roster-luna",
-    handle: "luna_archive",
-    stageName: "Luna Archive",
-    slotGenre: "Indie",
-    genre: "Dream pop",
-    tagline: "Tape-delay vocals, basement hymns",
-    story: "Luna Archive brings dream-pop tension to indie-locked rooms.",
-  },
-];
 
 // ——— Helpers ———
 
@@ -1459,9 +1012,6 @@ function ticketOpenStatusLabel(countdown: VenueCompetition["countdown"], isUserP
   return "티켓 전환 가능";
 }
 
-type ShowPageStage = "recruiting" | "almost_there" | "confirmed" | "ticket_ready";
-type StatusTone = "green" | "pink" | "yellow" | "slate";
-
 function getShowPageStage(venue: VenueCompetition, artist: CompetingArtist, hasTicket: boolean): ShowPageStage {
   if (venue.winnerId === artist.id) return hasTicket ? "ticket_ready" : "confirmed";
   const { probability, remaining } = campaignPledgeStats(artist.supporters, venue.minGoal);
@@ -1489,16 +1039,6 @@ function stageStatusTone(stage: ShowPageStage): StatusTone {
   if (stage === "recruiting") return "pink";
   return "slate";
 }
-
-type DemandSurfaceCopy = {
-  status: string;
-  context: string;
-  evidence: string;
-  current: number;
-  goal: number;
-  progressPct: number;
-  tone: StatusTone;
-};
 
 function demandDeadlineLabel(venue: VenueCompetition): string {
   const c = venue.countdown;
@@ -1580,23 +1120,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ShowCard({ children, borderColor }: { children: React.ReactNode; borderColor?: string }) {
-  return (
-    <View
-      style={{
-        backgroundColor: C.card,
-        borderRadius: 24,
-        padding: SPACE.md,
-        marginBottom: SPACE.md,
-        borderWidth: 1,
-        borderColor: borderColor ?? C.border,
-      }}
-    >
-      {children}
-    </View>
-  );
-}
-
 function DemandFieldLabel({ children }: { children: string }) {
   return (
     <Text style={{ color: C.dim, fontSize: 10, fontWeight: "800", letterSpacing: 1.2, marginBottom: 6 }}>{children}</Text>
@@ -1656,7 +1179,7 @@ function DemandSurfaceBlock({
   const s = statusToneStyle(copy.tone);
 
   return (
-    <ShowCard borderColor={s.border}>
+    <CampaignCard borderColor={s.border}>
       <Text style={{ color: C.text, fontWeight: "900", fontSize: 22, letterSpacing: -0.5, marginBottom: 4 }}>{title}</Text>
       <Text style={{ color: C.dim, fontSize: 13, fontWeight: "600", marginBottom: SPACE.md }}>
         {venue.venueName} · {schedule}
@@ -1684,7 +1207,7 @@ function DemandSurfaceBlock({
       <DemandFieldLabel>증거</DemandFieldLabel>
       <Text style={{ color: ROLE.fan.primary, fontSize: 16, fontWeight: "800", marginBottom: SPACE.xs }}>{copy.evidence}</Text>
       <DemandGraph current={copy.current} goal={copy.goal} progressPct={copy.progressPct} />
-    </ShowCard>
+    </CampaignCard>
   );
 }
 
@@ -1696,7 +1219,7 @@ function FanCreditCard({ artist, isUserPick }: { artist: CompetingArtist; isUser
     "이 무대는 관객이 먼저 불렀습니다",
   ];
   return (
-    <ShowCard borderColor={ROLE.fan.border}>
+    <CampaignCard borderColor={ROLE.fan.border}>
       {lines.map((line) => (
         <Text key={line} style={{ color: "#cbd5e1", lineHeight: 26, fontSize: 15, fontWeight: line.includes("당신") ? "800" : "600" }}>
           · {line}
@@ -1705,13 +1228,13 @@ function FanCreditCard({ artist, isUserPick }: { artist: CompetingArtist; isUser
       <Text style={{ color: C.dim, marginTop: SPACE.md, fontSize: 12, lineHeight: 18 }}>
         티켓은 다른 곳에서도 살 수 있어요. 이 기록은 fanstage만 줍니다.
       </Text>
-    </ShowCard>
+    </CampaignCard>
   );
 }
 
 function ShowStoryCard({ artist, venue }: { artist: CompetingArtist; venue: VenueCompetition }) {
   return (
-    <ShowCard>
+    <CampaignCard>
       <Text style={{ color: "#cbd5e1", lineHeight: 24, fontSize: 15 }}>{artist.story}</Text>
       <View style={{ flexDirection: "row", alignItems: "center", marginTop: SPACE.md, paddingTop: SPACE.md, borderTopWidth: 1, borderTopColor: C.border }}>
         <Text style={{ fontSize: 16, color: ROLE.fan.primary, marginRight: SPACE.sm }}>▶</Text>
@@ -1724,7 +1247,7 @@ function ShowStoryCard({ artist, venue }: { artist: CompetingArtist; venue: Venu
           </Text>
         </View>
       </View>
-    </ShowCard>
+    </CampaignCard>
   );
 }
 
@@ -1816,47 +1339,9 @@ function ShowPageShell({ children, bottom }: { children: React.ReactNode; bottom
   );
 }
 
-function ScreenHeader({
-  title,
-  subtitle,
-  onBack,
-  eyebrow,
-  titleColor,
-  titleSize,
-}: {
-  title: string;
-  subtitle?: string;
-  onBack?: () => void;
-  eyebrow?: string;
-  titleColor?: string;
-  titleSize?: number;
-}) {
-  const size = titleSize ?? 32;
-  return (
-    <View style={{ marginTop: SPACE.sm, marginBottom: SPACE.lg }}>
-      {onBack ? (
-        <TouchableOpacity
-          onPress={onBack}
-          hitSlop={{ top: 10, right: 16, bottom: 10, left: 16 }}
-          style={{ alignSelf: "flex-start", justifyContent: "center", minHeight: 44, marginBottom: SPACE.md }}
-        >
-          <Text style={{ color: C.accentSoft, fontWeight: "800", fontSize: 16 }}>← Back</Text>
-        </TouchableOpacity>
-      ) : null}
-      {eyebrow ? <Text style={{ color: C.rival, fontWeight: "800", fontSize: 11, marginBottom: SPACE.xs }}>{eyebrow}</Text> : null}
-      <Text style={{ color: titleColor ?? C.text, fontSize: size, fontWeight: "900", lineHeight: size + 6, letterSpacing: -1 }}>{title}</Text>
-      {subtitle ? <Text style={{ color: C.muted, fontSize: 16, lineHeight: 24, marginTop: SPACE.sm, fontWeight: "600" }}>{subtitle}</Text> : null}
-    </View>
-  );
-}
-
 function MomentumBadge({ momentum }: { momentum: VenueMomentum }) {
   const s = momentumStyle(momentum);
-  return (
-    <View style={{ backgroundColor: s.bg, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}>
-      <Text style={{ color: s.color, fontWeight: "800", fontSize: 11 }}>{momentumKo(momentum)}</Text>
-    </View>
-  );
+  return <StatusBadge label={momentumKo(momentum)} bg={s.bg} color={s.color} />;
 }
 
 function GenrePill({ genre, large, hero }: { genre: SlotGenre; large?: boolean; hero?: boolean }) {
@@ -3151,7 +2636,7 @@ function CoreRaceCard({
     toGo > 0 ? `${toGo}코어만 더 모이면 단독 공연 확정` : `${leader.name} 단독 공연 확정`;
 
   return (
-    <ShowCard borderColor={g.primary + "44"}>
+    <CampaignCard borderColor={g.primary + "44"}>
       <Text style={{ color: g.primary, fontWeight: "900", fontSize: 11, letterSpacing: 1.2 }}>CORE RACE</Text>
       <Text style={{ color: C.text, marginTop: SPACE.xs, fontSize: 15, fontWeight: "800" }}>{leader.name}</Text>
       <Text style={{ color: C.text, fontWeight: "900", fontSize: 24, marginTop: 2, letterSpacing: -0.4 }}>
@@ -3170,7 +2655,7 @@ function CoreRaceCard({
       <Text style={{ color: C.dim, marginTop: SPACE.sm, fontSize: 12, fontWeight: "600" }}>
         전체 참여 {total}코어 · {teamCount}팀 달리는 중
       </Text>
-    </ShowCard>
+    </CampaignCard>
   );
 }
 
@@ -3389,7 +2874,7 @@ function BattleRulesExpandable() {
   const [open, setOpen] = useState(false);
 
   return (
-    <ShowCard>
+    <CampaignCard>
       <TouchableOpacity
         onPress={() => setOpen((v) => !v)}
         style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
@@ -3408,10 +2893,10 @@ function BattleRulesExpandable() {
           <Text style={{ color: ROLE.fan.soft, lineHeight: 24, fontSize: 13, fontWeight: "700", marginTop: SPACE.xs }}>
             · 내가 고른 팀이 1위가 아니어도 공연 성사 시 티켓 발급
           </Text>
-          <Text style={{ color: ROLE.fan.soft, lineHeight: 24, fontSize: 13, fontWeight: "700" }}>· 공연 실패 시 전액 환불</Text>
+          <Text style={{ color: ROLE.fan.soft, lineHeight: 24, fontSize: 13, fontWeight: "700" }}>· 공연 추진 불가 시 결제형 코어는 환불 정책에 따라 처리됩니다</Text>
         </View>
       ) : null}
-    </ShowCard>
+    </CampaignCard>
   );
 }
 
@@ -3428,7 +2913,7 @@ function BattleVenueInfoExpandable({
   const g = genreTheme(venue.slotGenre);
 
   return (
-    <ShowCard>
+    <CampaignCard>
       <TouchableOpacity onPress={() => setOpen((v) => !v)} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
         <Text style={{ color: C.dim, fontWeight: "800", fontSize: 13 }}>공연장 정보</Text>
         <Text style={{ color: g.primary, fontWeight: "800", fontSize: 13 }}>{open ? "접기" : "펼쳐보기"}</Text>
@@ -3459,7 +2944,7 @@ function BattleVenueInfoExpandable({
           ) : null}
         </View>
       ) : null}
-    </ShowCard>
+    </CampaignCard>
   );
 }
 
@@ -3640,16 +3125,16 @@ function ArtistDetailScreen({
 
       <DemandSurfaceBlock copy={demand} artist={artist} venue={venue} stage={stage} />
 
-      <ShowCard>
+      <CampaignCard>
         <BattleArtistPitchBlock artist={artist} />
-      </ShowCard>
+      </CampaignCard>
 
       {isUserPick && stage !== "almost_there" ? (
-        <ShowCard>
+        <CampaignCard>
           <Text style={{ color: ROLE.fan.soft, fontWeight: "700", fontSize: 14, lineHeight: 22 }}>
             예치 완료 · {Math.max(0, demand.goal - demand.current)}명만 더 모이면 무대가 열립니다
           </Text>
-        </ShowCard>
+        </CampaignCard>
       ) : null}
 
       <ShowStoryCard artist={artist} venue={venue} />
@@ -4505,8 +3990,6 @@ function ApplyBattleFlow({
   );
 }
 
-type ArtistApprovalFilter = "pending" | "approved" | "rejected" | "all";
-
 function artistRequestStatusColor(status: ArtistRoleRequestStatus) {
   if (status === "approved") return ROLE.artist.primary;
   if (status === "rejected") return C.dim;
@@ -4826,13 +4309,6 @@ function CuratorToolsScreen({
     </>
   );
 }
-
-type VenuePublishDraft = {
-  venueName: string;
-  capacity: number;
-  slotGenre: SlotGenre;
-  district: DistrictFilter;
-};
 
 function VenueAdminScreen({
   onBack,
@@ -5447,6 +4923,84 @@ function AppContent() {
     setOverlay("raceProposal");
   };
 
+  const approveFanRecommendation = (recommendationId: string) => {
+    const rec = fanRecommendations.find((item) => item.id === recommendationId);
+    if (!rec || rec.status !== "reviewing") return;
+    const safeId = recommendationId.replace(/[^a-zA-Z0-9-]/g, "-");
+    const artistId = `artist-from-${safeId}`;
+    const raceId = `race-from-${safeId}`;
+
+    setOnecoreState((prev) => {
+      if (prev.races.some((race) => race.id === raceId)) return prev;
+      const artist: Artist = {
+        id: artistId,
+        name: rec.artistName,
+        genre: "팬 추천",
+        tagline: "팬 추천으로 시작된 ONECORE 캠페인",
+        bio: "팬이 먼저 제안한 공연입니다. 100코어가 모이면 fanstage가 아티스트·공연장·일정 가능성을 검토합니다.",
+        battlePitch: rec.fanReason,
+        social: rec.artistSocial,
+        campaignImage: {
+          assetKey: "onecore-guitar-placeholder",
+          alt: `${rec.artistName} ONECORE 캠페인 placeholder`,
+          cropFocusY: 0.46,
+          source: "illustration",
+        },
+      };
+      const race: Race = {
+        id: raceId,
+        title: `${rec.artistName} · 팬 추천 공연 제안`,
+        artistId,
+        targetCity: "서울",
+        adminPhase: "collecting_demand",
+        proposalReason: rec.fanReason,
+        fanPitch: rec.fanReason,
+        targetCount: 100,
+        currentCount: 0,
+        deadline: "2026-07-31",
+        deadlineCountdown: { days: 14, hours: 0, minutes: 0 },
+        status: "active",
+        paymentType: "deposit",
+        depositAmount: 30000,
+        refundPolicyId: DEFAULT_REFUND_POLICY_ID,
+        preferredDate: "TBD",
+        backupDates: [],
+        venueCandidateIds: prev.venueCandidates.slice(0, 3).map((venue) => venue.id),
+        fanNoteSamples: [rec.fanReason],
+        artistConfirmationStatus: "pending",
+        venueConfirmationStatus: "pending",
+        showPreparationStatus: "not_started",
+        campaignImage: {
+          assetKey: "onecore-guitar-placeholder",
+          alt: `${rec.artistName} ONECORE 캠페인 placeholder`,
+          cropFocusY: 0.46,
+          source: "illustration",
+        },
+      };
+      const log = createEventLog(raceId, onecoreAdminId, "draft", "active", "팬 추천 승인 · ONECORE 캠페인 오픈", true);
+      return {
+        ...prev,
+        artists: [artist, ...prev.artists.filter((item) => item.id !== artistId)],
+        races: [race, ...prev.races],
+        eventLogs: [log, ...prev.eventLogs],
+      };
+    });
+    setFanRecommendations((prev) =>
+      prev.map((item) => (item.id === recommendationId ? { ...item, status: "approved", campaignRaceId: raceId } : item))
+    );
+    setActiveTab("discover");
+    setOverlay(null);
+    showToast(`${rec.artistName} ONECORE 캠페인을 홈에 열었어요.`);
+  };
+
+  const rejectFanRecommendation = (recommendationId: string) => {
+    const rec = fanRecommendations.find((item) => item.id === recommendationId);
+    setFanRecommendations((prev) =>
+      prev.map((item) => (item.id === recommendationId ? { ...item, status: "rejected" } : item))
+    );
+    if (rec) showToast(`${rec.artistName} 추천을 보류했어요.`);
+  };
+
   const liveVenue = useMemo(() => findLiveVenue(venues, selectedVenue), [venues, selectedVenue]);
   const liveArtist = useMemo(() => findLiveArtist(liveVenue, selectedArtist), [liveVenue, selectedArtist]);
 
@@ -5721,8 +5275,11 @@ function AppContent() {
       return (
         <AdminRaceScreen
           state={onecoreState}
+          fanRecommendations={fanRecommendations}
           adminId={onecoreAdminId}
           onBack={closeOverlay}
+          onApproveRecommendation={approveFanRecommendation}
+          onRejectRecommendation={rejectFanRecommendation}
           onCreate={(draft, publishActive) => {
             setOnecoreState((prev) => createRaceFromDraft(prev, draft, onecoreAdminId, publishActive));
             showToast(publishActive ? "Race 게시됨" : "Race 초안 저장됨");

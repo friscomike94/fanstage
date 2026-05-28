@@ -38,11 +38,11 @@ export function thresholdNoteForPhase(phase: OnecoreFanPhase): string {
 
 export function fanPhaseLabel(phase: OnecoreFanPhase): string {
   const map: Record<OnecoreFanPhase, string> = {
-    collecting_core: "모집 중",
-    threshold_reached: "아티스트 초대 검토 중",
-    artist_accepted: "아티스트 수락",
-    venue_assigned: "베뉴 확정",
-    ticket_open: "티켓 추가 오픈",
+    collecting_core: "코어 모집 중",
+    threshold_reached: "수요 검토 중",
+    artist_accepted: "공연 추진 중",
+    venue_assigned: "공연 추진 중",
+    ticket_open: "티켓 오픈",
   };
   return map[phase];
 }
@@ -59,7 +59,7 @@ export function resolveOnecoreCardVariant(phase: OnecoreFanPhase): OnecoreCardVa
 export function fanPhaseCardHero(phase: OnecoreFanPhase, race: Race, remainingTickets = 0): string {
   if (phase === "collecting_core") return `${race.currentCount} / ${race.targetCount} core`;
   if (phase === "ticket_open") return `추가 티켓 ${remainingTickets}장 오픈`;
-  if (phase === "artist_accepted") return "베뉴 매칭 중";
+  if (phase === "artist_accepted") return "공연 추진 중";
   if (phase === "venue_assigned") return "티켓 오픈 준비 중";
   return "아티스트 초대장 검토 중";
 }
@@ -130,7 +130,7 @@ export function fanStatusHeadline(race: Race): string {
 
 export function fanStatusSubline(race: Race): string {
   const phase = race.adminPhase ?? mapStatusToAdminPhase(race.status);
-  if (phase === "collecting_demand") return "100코어가 모이면 공연 준비가 시작돼요. 베뉴 정원은 공연장 확정 후 공개돼요.";
+  if (phase === "collecting_demand") return "100코어가 모이면 공연 가능성 검토가 시작돼요. 베뉴 정원은 공연장 확정 후 공개돼요.";
   if (phase === "demand_proven") return "최소 수요가 증명됐어요. fanstage가 아티스트와 공연 조건을 확인합니다.";
   if (phase === "artist_contacting" || phase === "artist_reviewing_invite") {
     return "아티스트 일정·조건은 비공개로 확인 중이에요. 팬에게는 진행 상황만 알려드립니다.";
@@ -276,7 +276,7 @@ export function formatCountdown(c: Race["deadlineCountdown"]): string {
 
 export const TRUST_COPY = {
   payment: "참여 시 예치금이 보관되며, 공연이 열리지 않으면 환불됩니다.",
-  success: "100코어가 모이면 공연 준비가 시작돼요. ‘공연 확정’과 티켓 오픈은 그 다음 단계입니다.",
+  success: "100코어가 모이면 공연 가능성 검토가 시작돼요. 공연 확정은 아티스트·공연장·일정이 맞아야 가능합니다.",
   venue: "베뉴 정원은 공연장 확정 후 공개돼요. 100코어는 최소 수요 임계치입니다.",
   rules: "성공·실패 규칙은 아래에서 언제든 확인할 수 있습니다.",
   wedge: ONECORE_THRESHOLD_NOTE,

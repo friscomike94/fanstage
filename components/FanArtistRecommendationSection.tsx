@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import type { FanArtistRecommendation } from "../onecore/fanRecommendations";
-import { platformLabelKo } from "../onecore/fanRecommendations";
+import { fanRecommendationStatusLabel, platformLabelKo } from "../onecore/fanRecommendations";
 
 const C = {
   card: "#0f172a",
@@ -20,6 +20,8 @@ type Props = {
 };
 
 export function FanArtistRecommendationSection({ recommendations, onRecommend }: Props) {
+  const visibleRecommendations = recommendations.filter((rec) => rec.status !== "rejected");
+
   return (
     <View style={{ marginBottom: 20 }}>
       <View
@@ -56,9 +58,11 @@ export function FanArtistRecommendationSection({ recommendations, onRecommend }:
         </TouchableOpacity>
       </View>
 
-      {recommendations.length > 0 ? (
+      {visibleRecommendations.length > 0 ? (
         <View style={{ marginTop: 12 }}>
-          {recommendations.map((rec) => (
+          {visibleRecommendations.map((rec) => {
+            const approved = rec.status === "approved";
+            return (
             <View
               key={rec.id}
               style={{
@@ -77,12 +81,14 @@ export function FanArtistRecommendationSection({ recommendations, onRecommend }:
                     paddingHorizontal: 8,
                     paddingVertical: 3,
                     borderRadius: 6,
-                    backgroundColor: "#422006",
-                    borderWidth: 1,
-                    borderColor: C.gold + "55",
+                  backgroundColor: approved ? "#14532d" : "#422006",
+                  borderWidth: 1,
+                  borderColor: approved ? C.accent + "66" : C.gold + "55",
                   }}
                 >
-                  <Text style={{ color: C.gold, fontWeight: "800", fontSize: 10 }}>추천 검토 중</Text>
+                  <Text style={{ color: approved ? C.accentSoft : C.gold, fontWeight: "800", fontSize: 10 }}>
+                    {fanRecommendationStatusLabel(rec.status)}
+                  </Text>
                 </View>
               </View>
               <View
@@ -105,7 +111,8 @@ export function FanArtistRecommendationSection({ recommendations, onRecommend }:
                 {rec.fanReason}
               </Text>
             </View>
-          ))}
+          );
+          })}
         </View>
       ) : null}
     </View>

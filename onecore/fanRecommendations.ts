@@ -17,9 +17,16 @@ export type FanArtistRecommendation = {
   artistSocial: ArtistSocialProof;
   fanReason: string;
   fanSocial?: string;
-  status: "reviewing";
+  status: "reviewing" | "approved" | "rejected";
+  campaignRaceId?: string;
   createdAt: string;
 };
+
+export function fanRecommendationStatusLabel(status: FanArtistRecommendation["status"]): string {
+  if (status === "approved") return "ONECORE 캠페인 오픈";
+  if (status === "rejected") return "보류됨";
+  return "ONECORE 후보 검토 중";
+}
 
 export function platformLabelKo(platform: SocialPlatform): string {
   return SOCIAL_PLATFORM_OPTIONS.find((o) => o.id === platform)?.labelKo ?? platform;
